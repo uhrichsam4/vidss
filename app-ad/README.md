@@ -16,15 +16,24 @@ synthesized with numpy.
 | 17–23 | Discover | Search typing, niche chips, grid of games |
 | 23–32 | Upload | HTML drop, GitHub import, publish from Claude with the skill |
 | 32–36 | API | `curl` publish request typing out, `201 live` response |
-| 36–43 | Leaderboard | Top games, filter by model, rows reorder |
+| 36–43 | Leaderboard | Real Opus 5.5 games, each tagged with its model; filter by model |
 | 43–46 | Open source | Toggle flips, source code and Fork button appear |
 | 46–49 | Creator tips | Tip cards between games |
 | 49–56 | Claude integration | Team room: teammates and Claude chat, live game preview changes with each message |
 | 56–59 | Recap | One word per half beat: Feed · Search · Upload · API · Leaderboard · Open source |
 | 59–64 | End card | Logo, "Upload your first game.", "Get early access" |
 
-The mini-games inside the cards (runner, shooter, blocks, racer, farm, dungeon) are drawn procedurally
-on canvas, so the "gameplay" is real animation, not screenshots.
+
+## Real games
+
+The feed, search results, leaderboard, open-source preview and intro collage show **real games made with
+Claude Opus 5.5** (Turbo Kart Rally, Nova Lancer, The Black Sedan, Tidewater, Tater's Flight Sim), all MIT
+licensed. Gameplay was recorded from their open-source code and stills are the creators' own screenshots;
+see `../game-clips/CREDITS.md`. Before rendering, unpack the clips once:
+
+```bash
+cd ../game-clips && ./scripts/prepare_frames.sh
+```
 
 ## Render
 

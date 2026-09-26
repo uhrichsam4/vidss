@@ -1,0 +1,16 @@
+{
+  "name": "game-clips",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch": "./scripts/fetch_games.sh",
+    "capture": "node scripts/capture.mjs",
+    "frames": "./scripts/prepare_frames.sh"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  }
+}

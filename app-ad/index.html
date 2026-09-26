@@ -55,6 +55,7 @@
   <div class="abs" id="flash"></div>
 </div>
 
+<script src="../game-clips/games.js"></script>
 <script>
 // ---------- brand ----------
 const BRAND = 'Promptcade'
@@ -128,6 +129,20 @@ function headline(parent, x, y, w, kicker, title, sub, align = 'left') {
     })
     if (s) show(s, smooth(0.35, 0.9, lt), 8, 16)
   }
+}
+
+// ---------- real games (see ../game-clips/CREDITS.md) ----------
+// seek(t) collects decode promises from the clip players and returns them, so the renderer waits for frames
+const PENDING = []
+const need = (p) => { if (p) PENDING.push(p) }
+const RG = window.REAL_GAMES, GP = window.GAME_PLAYER
+// real gameplay clip if we recorded one, otherwise the creator's screenshot with a slow push-in
+function realMedia(parent, key, w, h, { still = 0, offset = 0, style = {} } = {}) {
+  const img = el('img', '', Object.assign({ position: 'absolute', left: 0, top: 0, width: w + 'px', height: h + 'px', objectFit: 'cover', display: 'block' }, style), parent)
+  const g = RG[key]
+  if (g.clip && still === 0) { const play = GP.clip(img, g.clip, offset); return (t) => need(play(t)) }
+  img.src = GP.still(g.stills[Math.max(0, still - (g.clip ? 1 : 0)) % g.stills.length])
+  return (t) => { img.style.transform = `scale(${(1.06 + 0.04 * Math.sin((t + offset) * 0.35)).toFixed(4)}) translateX(${(Math.sin((t + offset) * 0.2) * 1.5).toFixed(2)}%)` }
 }
 
 // ---------- mini games: procedural "gameplay" drawn as a function of time ----------
@@ -267,11 +282,21 @@ const cue = (t, kind, extra = {}) => CUES.push({ t, kind, ...extra })
 
 // 1 ─ hook
 scene('hook', 0, 4, (d) => {
+  const wall = el('div', 'abs', { left: '-80px', top: '-60px', width: '2080px', height: '1200px' }, d)
+  const tiles = ['tidewater-pier.jpg', 'lancer-boss.jpg', 'sedan-club.jpg', 'flight-f16.jpg', 'kart-select.jpg', 'lancer-canyon.jpg', 'sedan-chase.jpg', 'tidewater-beach.jpg', 'lancer-city.jpg', 'flight-747.jpg', 'sedan-skyline.jpg', 'tidewater-pier.jpg']
+    .map((f, i) => {
+      const img = el('img', '', { position: 'absolute', left: (i % 4) * 520 + 'px', top: Math.floor(i / 4) * 400 + 'px', width: '500px', height: '380px', objectFit: 'cover', borderRadius: '22px' }, wall)
+      img.src = GP.still(f)
+      return img
+    })
+  const shade = el('div', 'abs', { inset: 0, background: 'radial-gradient(ellipse 60% 55% at 50% 50%, rgba(7,6,13,0.55), rgba(7,6,13,0.92))' }, d)
   const l1 = el('div', 'abs', { left: 0, right: 0, top: '380px', textAlign: 'center', fontSize: '76px', fontWeight: 800, letterSpacing: '-2.5px' }, d,
     'Thousands of games are<br/>being made with <span class="grad">AI</span>.')
   const l2 = el('div', 'abs', { left: 0, right: 0, top: '440px', textAlign: 'center', fontSize: '120px', fontWeight: 850, letterSpacing: '-4px' }, d, 'Where do they go?')
   cue(0.05, 'swell'); cue(b(2), 'hit_soft'); cue(b(3), 'riser')
   return (lt) => {
+    wall.style.transform = `translate(${(-lt * 40).toFixed(1)}px, ${(-lt * 18).toFixed(1)}px) scale(${(1.05 + lt * 0.03).toFixed(4)}) rotate(-4deg)`
+    tiles.forEach((tl, i) => { const p = smooth(0.05 * i, 0.05 * i + 0.5, lt); tl.style.opacity = (p * 0.9).toFixed(3); tl.style.transform = `scale(${lerp(0.9, 1, p).toFixed(3)})` })
     const a = smooth(0.1, 0.7, lt) * (1 - smooth(b(1.8), b(2), lt))
     show(l1, a, 14, 30, 0.94)
     const c = smooth(b(2), b(2) + 0.35, lt)
@@ -315,14 +340,14 @@ scene('logo', 4, 8, (d) => {
 
 // 3 ─ For You feed
 const FEED = [
-  { kind: 'runner', title: 'Neon Dash', by: '@mika.makes', model: 'Claude Opus 5.5', likes: 48200 },
-  { kind: 'shooter', title: 'Star Swarm', by: '@devkai', model: 'Claude Sonnet 5', likes: 31900 },
-  { kind: 'racer', title: 'Sunset Drift', by: '@lumen', model: 'Claude Fable 5.1', likes: 87400 },
-  { kind: 'farm', title: 'Cozy Acres', by: '@pixelwitch', model: 'Claude Haiku 4.5', likes: 22500 },
-]
+  { key: 'kart', likes: 48200 },
+  { key: 'lancer', likes: 31900 },
+  { key: 'sedan', likes: 27400 },
+  { key: 'tidewater', likes: 52500 },
+].map((f) => ({ ...f, ...RG[f.key] }))
 function feedCard(parent, g, w, h) {
   const c = el('div', 'abs', { left: 0, top: 0, width: w + 'px', height: h + 'px', overflow: 'hidden' }, parent)
-  const draw = gameCanvas(c, g.kind, w, h)
+  const draw = realMedia(c, g.key, w, h)
   el('div', 'abs', { inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 22%, transparent 55%, rgba(0,0,0,0.8) 100%)' }, c)
   const info = el('div', 'abs', { left: '26px', bottom: '40px', right: '100px' }, c)
   el('div', '', { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.6px' }, info, g.title)
@@ -359,7 +384,7 @@ scene('feed', 8, 17, (d) => {
       cd.c.style.transform = `translateY(${y.toFixed(2)}px)`
       const vis = y > -ch && y < ch
       cd.c.style.visibility = vis ? 'visible' : 'hidden'
-      if (vis) cd.draw(lt + i * 3)
+      if (vis) cd.draw(lt)
     })
     // double-tap like on the first card
     const lk = lt - LIKE
@@ -381,16 +406,17 @@ scene('search', 17, 23, (d) => {
   const bar = el('div', 'card', { position: 'absolute', left: '930px', top: '150px', width: '840px', height: '96px', borderRadius: '48px', display: 'flex', alignItems: 'center', gap: '18px', padding: '0 34px', boxSizing: 'border-box', fontSize: '32px', fontWeight: 550 }, d, `<span style="color:rgba(255,255,255,0.5)">${ICON.search}</span>`)
   const typed = el('span', '', {}, bar)
   const caret = el('span', '', { width: '3px', height: '38px', background: '#c6ff3d', display: 'inline-block' }, bar)
-  const QUERY = 'cozy pixel games'
+  const QUERY = 'made with opus 5.5'
   const chipsWrap = el('div', 'abs', { left: '930px', top: '280px', width: '860px' }, d)
   const chips = NICHES.map((n, i) => el('div', 'chip', { margin: '0 12px 14px 0', display: 'inline-flex' }, chipsWrap, n))
   const grid = el('div', 'abs', { left: '930px', top: '440px', width: '860px' }, d)
-  const kinds = ['farm', 'blocks', 'dungeon', 'runner', 'farm', 'blocks']
-  const titles = ['Cozy Acres', 'Block Garden', 'Lantern Keep', 'Pixel Pals', 'Tiny Harvest', 'Stack Café']
-  const tiles = kinds.map((k, i) => {
+  const picks = [['tidewater', 0], ['lancer', 2], ['sedan', 1], ['kart', 0], ['flight', 0], ['sedan', 3]]
+  const tiles = picks.map(([k, st], i) => {
     const t = el('div', 'card', { position: 'absolute', left: (i % 3) * 290 + 'px', top: Math.floor(i / 3) * 290 + 'px', width: '270px', height: '270px', overflow: 'hidden', borderRadius: '22px' }, grid)
-    const draw = gameCanvas(t, k, 270, 200)
-    el('div', '', { padding: '14px 16px', fontSize: '20px', fontWeight: 700 }, t, titles[i])
+    const box = el('div', '', { position: 'relative', width: '270px', height: '196px', overflow: 'hidden' }, t)
+    const draw = realMedia(box, k, 270, 196, { still: st, offset: i * 1.3 })
+    el('div', '', { padding: '12px 16px 0', fontSize: '19px', fontWeight: 750, whiteSpace: 'nowrap' }, t, RG[k].title)
+    el('div', '', { padding: '2px 16px', fontSize: '14px', color: 'rgba(255,255,255,0.5)' }, t, RG[k].genre + ' · ' + RG[k].by)
     return { t, draw }
   })
   for (let i = 0; i < QUERY.length; i++) cue(b(17) + 0.35 + i * 0.055, 'key')
@@ -406,7 +432,7 @@ scene('search', 17, 23, (d) => {
       const p = pop(lt - 0.3 - i * 0.05, 2.6)
       c.style.transform = `translateY(${((1 - p) * 40).toFixed(1)}px) scale(${clamp(p, 0, 1.2).toFixed(3)})`
       c.style.opacity = clamp(p * 2).toFixed(3)
-      const on = sel && (i === 1 || i === 4)
+      const on = sel && (i === 2 || i === 4)
       c.style.background = on ? '#c6ff3d' : 'rgba(255,255,255,0.06)'
       c.style.color = on ? '#0b0a14' : '#fff'
     })
@@ -441,7 +467,7 @@ scene('upload', 23, 32, (d) => {
   const progFill = el('div', '', { height: '100%', width: '0%', background: 'linear-gradient(90deg,#c6ff3d,#3de0ff)' }, prog)
   // 2: GitHub repo
   const repo = el('div', 'abs', { left: '34px', top: '80px', width: '452px', height: '270px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }, cols[1])
-  el('div', 'abs', { left: '28px', top: '28px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '24px', fontWeight: 700 }, repo, ICON.branch + 'you / star-swarm')
+  el('div', 'abs', { left: '28px', top: '28px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '24px', fontWeight: 700 }, repo, `<img src="${GP.still('github-mark.svg')}" style="width:30px;height:30px;filter:invert(1)">you / star-swarm`)
   el('div', 'abs mono', { left: '28px', top: '82px', fontSize: '16px', color: 'rgba(255,255,255,0.5)' }, repo, 'main · index.html · assets/')
   el('div', 'abs', { left: '28px', top: '120px', display: 'flex', gap: '8px', alignItems: 'center', fontSize: '16px', color: '#ffd36b' }, repo, ICON.star + '<span style="color:rgba(255,255,255,0.7)">128</span>')
   const importBtn = el('div', 'btn', { position: 'absolute', left: '28px', bottom: '28px', width: '396px', height: '64px', fontSize: '22px', background: '#fff', color: '#0b0a14' }, repo, 'Import repository')
@@ -527,29 +553,24 @@ scene('api', 32, 36, (d) => {
 })
 
 // 7 ─ leaderboard + model tags
-const BOARD = [
-  ['Sunset Drift', '@lumen', 'Claude Fable 5.1', 'racer', 1.84],
-  ['Neon Dash', '@mika.makes', 'Claude Opus 5.5', 'runner', 1.52],
-  ['Lantern Keep', '@hollow', 'Claude Opus 5.5', 'dungeon', 1.21],
-  ['Star Swarm', '@devkai', 'Claude Sonnet 5', 'shooter', 0.98],
-  ['Cozy Acres', '@pixelwitch', 'Claude Haiku 4.5', 'farm', 0.77],
-  ['Block Garden', '@tetra', 'Claude Sonnet 5', 'blocks', 0.64],
-]
+const BOARD = ['kart', 'lancer', 'tidewater', 'sedan', 'flight'].map((k) => [RG[k].title, RG[k].by, RG[k].model, k, RG[k].genre])
 const FILTERS = ['All models', 'Opus 5.5', 'Sonnet 5', 'Fable 5.1', 'Haiku 4.5']
 scene('board', 36, 43, (d) => {
   const text = headline(d, 150, 330, 640, '05 · Leaderboard', 'See what each *model can build.', 'Every game is tagged with the model that made it. Filter the charts by model.')
   const card = el('div', 'card', { position: 'absolute', left: '860px', top: '130px', width: '930px', height: '820px', overflow: 'hidden' }, d)
   el('div', 'abs', { left: '40px', top: '34px', fontSize: '32px', fontWeight: 800, letterSpacing: '-0.6px' }, card, 'Top games this week')
+  const note = el('div', 'abs mono', { right: '36px', top: '46px', fontSize: '13px', color: 'rgba(255,255,255,0.4)' }, card, 'real Opus 5.5 games · MIT')
   const fwrap = el('div', 'abs', { left: '40px', top: '96px', display: 'flex', gap: '10px' }, card)
   const fchips = FILTERS.map((f) => el('div', 'chip', { fontSize: '17px', padding: '9px 16px' }, fwrap, f))
   const rows = BOARD.map(([title, by, model, kind, plays], i) => {
-    const r = el('div', 'abs', { left: '28px', right: '28px', top: '0px', height: '96px', borderRadius: '18px', display: 'flex', alignItems: 'center', gap: '20px', padding: '0 20px', boxSizing: 'border-box', background: 'rgba(255,255,255,0.035)', border: '1px solid transparent' }, card)
+    const r = el('div', 'abs', { left: '28px', right: '28px', top: '0px', height: '104px', borderRadius: '18px', display: 'flex', alignItems: 'center', gap: '20px', padding: '0 20px', boxSizing: 'border-box', background: 'rgba(255,255,255,0.035)', border: '1px solid transparent' }, card)
     const rank = el('div', '', { width: '44px', fontSize: '30px', fontWeight: 800, color: 'rgba(255,255,255,0.4)' }, r, i + 1)
-    const th = el('div', '', { width: '104px', height: '66px', borderRadius: '12px', overflow: 'hidden', flex: 'none' }, r)
-    const draw = gameCanvas(th, kind, 104, 66)
+    const th = el('div', '', { width: '120px', height: '76px', borderRadius: '12px', overflow: 'hidden', flex: 'none' }, r)
+    th.style.position = 'relative'
+    const draw = realMedia(th, kind, 120, 76, { still: kind === 'kart' ? 0 : 1, offset: i })
     const info = el('div', '', { flex: 1 }, r, `<div style="font-size:24px;font-weight:750">${title}</div><div style="font-size:16px;color:rgba(255,255,255,0.5);margin-top:4px">${by}</div>`)
     el('div', 'badge', {}, r, `<span class="spark"></span>${model}`)
-    const pl = el('div', 'mono', { width: '130px', textAlign: 'right', fontSize: '22px', fontWeight: 700 }, r)
+    const pl = el('div', '', { width: '130px', textAlign: 'right', fontSize: '18px', fontWeight: 650, color: 'rgba(255,255,255,0.6)' }, r, plays)
     return { r, rank, draw, plays, model, i, pl }
   })
   const CLICK = b(3.4)
@@ -566,21 +587,16 @@ scene('board', 36, 43, (d) => {
       c.style.color = on ? '#0b0a14' : '#fff'
       c.style.transform = `scale(${(1 - (i === 1 ? 0.08 * pulse(lt - CLICK + 0.05, 7) : 0)).toFixed(3)})`
     })
-    // filtered order: Opus rows first
-    const opus = rows.filter((r) => r.model.includes('Opus')), rest = rows.filter((r) => !r.model.includes('Opus'))
-    const order = [...opus, ...rest]
-    const k = S(lt - CLICK, 1.8, 0.8)
     rows.forEach((r) => {
-      const y0 = 170 + r.i * 106, y1 = 170 + order.indexOf(r) * 106
-      const y = lerp(y0, y1, k)
+      const y = 170 + r.i * 118
       const e = pop(lt - 0.3 - r.i * 0.07, 2.4)
-      const dim = f && !r.model.includes('Opus') ? 0.35 : 1
-      r.r.style.transform = `translate(${((1 - e) * 120).toFixed(1)}px, ${y.toFixed(1)}px)`
-      r.r.style.opacity = (clamp(e * 1.5) * lerp(1, dim, k)).toFixed(3)
-      r.r.style.borderColor = f && r.model.includes('Opus') ? `rgba(198,255,61,${(0.6 * k).toFixed(2)})` : 'transparent'
-      r.rank.textContent = f ? (order.indexOf(r) < opus.length ? order.indexOf(r) + 1 : '–') : r.i + 1
-      r.pl.textContent = (r.plays * easeOut((lt - 0.4) / 1.6)).toFixed(2) + 'M'
-      r.draw(lt + r.i)
+      const lit = f ? smooth(CLICK + 0.08 * r.i, CLICK + 0.08 * r.i + 0.25, lt) : 0
+      r.r.style.height = '104px'
+      r.r.style.transform = `translate(${((1 - e) * 120).toFixed(1)}px, ${y.toFixed(1)}px) scale(${(1 + 0.02 * pulse(lt - CLICK - 0.08 * r.i, 5)).toFixed(4)})`
+      r.r.style.opacity = clamp(e * 1.5).toFixed(3)
+      r.r.style.borderColor = `rgba(198,255,61,${(0.65 * lit).toFixed(2)})`
+      r.r.style.background = `rgba(198,255,61,${(0.05 * lit).toFixed(3)})`
+      r.draw(lt)
     })
   }
 })
@@ -590,7 +606,8 @@ scene('open', 43, 46, (d) => {
   const text = headline(d, 150, 360, 700, '06 · Your call', '*Open source or closed.', 'Share the code so others can learn and remix, or keep it private.')
   const card = el('div', 'card', { position: 'absolute', left: '900px', top: '230px', width: '860px', height: '600px', overflow: 'hidden' }, d)
   const game = el('div', 'abs', { left: '30px', top: '30px', width: '360px', height: '540px', borderRadius: '18px', overflow: 'hidden' }, card)
-  const draw = gameCanvas(game, 'dungeon', 360, 540)
+  game.style.position = 'absolute'
+  const draw = realMedia(game, 'sedan', 360, 540)
   const panel = el('div', 'abs code', { left: '420px', top: '110px', fontSize: '17px', lineHeight: 1.75 }, card,
     `<span class="tk-k">const</span> hero = { x: <span class="tk-v">3</span>, y: <span class="tk-v">5</span> }\n<span class="tk-k">function</span> <span class="tk-v">step</span>(dt) {\n  torch.flicker(dt)\n  <span class="tk-k">for</span> (<span class="tk-k">const</span> e <span class="tk-k">of</span> enemies)\n    e.chase(hero)\n}\n<span class="tk-c">// made with Claude Opus 5.5</span>`)
   const fork = el('div', 'btn', { position: 'absolute', left: '420px', bottom: '40px', width: '200px', height: '56px', fontSize: '19px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--line)' }, card, ICON.branch.replace(/30/g, '22') + 'Fork')
@@ -742,6 +759,7 @@ scene('end', 59, 64, (d) => {
   const line = el('div', '', { fontSize: '44px', fontWeight: 700, letterSpacing: '-1px', marginTop: '8px' }, wrap, 'Upload your first game<span style="color:var(--l)">.</span>')
   const cta = el('div', 'btn', { marginTop: '44px', padding: '0 44px', height: '84px', fontSize: '28px', background: 'linear-gradient(90deg,#ff4fd8,#7c5cff)', boxShadow: '0 0 60px rgba(255,79,216,0.45)' }, wrap, 'Get early access →')
   const wc = el('div', 'kicker', { marginTop: '40px', color: 'rgba(255,255,255,0.5)' }, wrap, 'Works with Claude · HTML · GitHub · API')
+  const credits = el('div', 'abs mono', { left: 0, right: 0, bottom: '36px', textAlign: 'center', fontSize: '13px', color: 'rgba(255,255,255,0.35)' }, d, window.GAME_CREDITS)
   cue(b(59), 'impact'); cue(b(59) + 1.2, 'chime')
   return (lt) => {
     const m = pop(lt, 2.2)
@@ -753,6 +771,7 @@ scene('end', 59, 64, (d) => {
     cta.style.opacity = clamp(c * 2).toFixed(3)
     cta.style.boxShadow = `0 0 ${(50 + 20 * Math.sin(lt * 4)).toFixed(1)}px rgba(255,79,216,0.45)`
     show(wc, smooth(1.1, 1.5, lt), 6, 10)
+    show(credits, smooth(1.3, 1.8, lt), 4)
   }
 }, 'flash')
 
@@ -803,6 +822,8 @@ function seek(tIn) {
   }
   $('flash').style.opacity = (flash * 0.85).toFixed(4)
   $('turb').setAttribute('seed', Math.floor(t * 24) % 60)
+  const ps = PENDING.splice(0)
+  return ps.length ? Promise.all(ps) : undefined
 }
 
 // ---------- api ----------

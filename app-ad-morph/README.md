@@ -15,7 +15,7 @@ floods a new background color from the cursor, and the shape floods its own colo
 | 2 | Search bar | click, types "cozy pixel games" |
 | 5 | Niche chips | picks Cozy, Pixel art |
 | 8 | For You card | live mini-game, like (heart pops), swipe to the next game |
-| 12 | Leaderboard | filter by "Opus 5.5", rows reorder |
+| 12 | Leaderboard | real Opus 5.5 games, filter "Shooter", rows reorder |
 | 16 | HTML drop zone | cursor drags `index.html` in |
 | 18 | Upload ring | 0 → 100%, check, shape floods violet |
 | 21 | GitHub | Import → Synced ✓ |
@@ -26,6 +26,13 @@ floods a new background color from the cursor, and the shape floods its own colo
 | 37 | Team | avatars pop, spread on hover, "+" becomes Claude |
 | 41 | Live build | Claude's change lights the game and adds enemies |
 | 44 | CTA | "Upload your first game →", click |
+
+## Real games
+
+The feed card (Turbo Kart Rally → Nova Lancer) and the leaderboard (Nova Lancer, Turbo Kart Rally,
+Tidewater) show **real games made with Claude Opus 5.5**, MIT licensed, credited on screen. Gameplay was
+recorded from their open-source code; see `../game-clips/CREDITS.md`. Unpack the clips once before
+rendering: `cd ../game-clips && ./scripts/prepare_frames.sh`.
 
 ## Render
 

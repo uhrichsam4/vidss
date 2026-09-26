@@ -44,6 +44,7 @@ async function openPage(browser) {
   page.on('pageerror', (e) => console.error('pageerror', e));
   await page.goto('file://' + path.join(root, 'index.html'));
   await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {})))); // real screenshots
   return page;
 }
 

@@ -64,13 +64,13 @@
       <div class="layer" id="L-chips" data-w="540" data-h="170"></div>
 
       <div class="layer" id="L-feed" data-w="300" data-h="480">
-        <canvas class="abs" id="feedA" width="300" height="480" style="left:0;top:0"></canvas>
-        <canvas class="abs" id="feedB" width="300" height="480" style="left:0;top:0"></canvas>
+        <img class="abs" id="feedA" style="left:0;top:0;width:300px;height:480px;object-fit:cover">
+        <img class="abs" id="feedB" style="left:0;top:0;width:300px;height:480px;object-fit:cover">
         <div class="abs" style="inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.25),transparent 25%,transparent 55%,rgba(0,0,0,0.78))"></div>
         <div class="abs" style="left:0;right:0;top:18px;text-align:center;color:#fff;font-size:15px;font-weight:700"><span style="opacity:.6;margin-right:16px">Following</span><span style="border-bottom:2px solid #fff;padding-bottom:4px">For You</span></div>
         <div class="abs" id="feedInfo" style="left:20px;bottom:24px;color:#fff">
-          <div id="feedTitle" style="font-size:24px;font-weight:800;letter-spacing:-0.5px">Neon Dash</div>
-          <div id="feedBy" style="font-size:14px;opacity:.75;margin:4px 0 10px">@mika.makes</div>
+          <div id="feedTitle" style="font-size:24px;font-weight:800;letter-spacing:-0.5px"></div>
+          <div id="feedBy" style="font-size:14px;opacity:.75;margin:4px 0 10px"></div>
           <span class="badge" id="feedModel" style="background:rgba(124,77,255,0.35);border:1px solid rgba(190,170,255,0.6)">Made with Claude Opus 5.5</span>
         </div>
         <div class="abs" style="left:236px;top:268px;width:48px;text-align:center;color:#fff">
@@ -83,8 +83,8 @@
         <div class="abs" style="left:28px;top:24px;width:404px;height:44px;border-radius:22px;background:#EEEAFB"></div>
         <div class="abs" id="segBlob" style="top:28px;height:36px;border-radius:18px;background:#17112B"></div>
         <div class="abs seg" data-cx="80" style="left:28px;top:24px;width:104px;line-height:44px;text-align:center;font-size:15px;font-weight:650">All</div>
-        <div class="abs seg" data-cx="210" style="left:150px;top:24px;width:120px;line-height:44px;text-align:center;font-size:15px;font-weight:650">Opus 5.5</div>
-        <div class="abs seg" data-cx="345" style="left:285px;top:24px;width:120px;line-height:44px;text-align:center;font-size:15px;font-weight:650">Sonnet 5</div>
+        <div class="abs seg" data-cx="210" style="left:150px;top:24px;width:120px;line-height:44px;text-align:center;font-size:15px;font-weight:650">Shooter</div>
+        <div class="abs seg" data-cx="345" style="left:285px;top:24px;width:120px;line-height:44px;text-align:center;font-size:15px;font-weight:650">Racing</div>
       </div>
 
       <div class="layer" id="L-drop" data-w="380" data-h="260">
@@ -104,7 +104,7 @@
       </div>
 
       <div class="layer" id="L-github" data-w="460" data-h="110">
-        <svg class="abs" style="left:30px;top:37px;color:#fff" width="36" height="36" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2" class="stroke" style="stroke-width:1.8"/><circle cx="6" cy="19" r="2.2" class="stroke" style="stroke-width:1.8"/><circle cx="18" cy="8" r="2.2" class="stroke" style="stroke-width:1.8"/><path class="stroke" style="stroke-width:1.8" d="M6 7.2v9.6M18 10.2c0 4-6 3-11 6.4"/></svg>
+        <img class="abs" src="../game-clips/stills/github-mark.svg" style="left:30px;top:37px;width:36px;height:36px;filter:invert(1)">
         <div class="abs" style="left:80px;top:26px;color:#fff;font-size:22px;font-weight:700;white-space:nowrap">you / star-swarm</div>
         <div class="abs mono" style="left:80px;top:60px;color:rgba(255,255,255,0.5);font-size:14px">main · GitHub</div>
         <div class="abs" id="ghBtn" style="left:296px;top:25px;width:140px;height:60px;border-radius:30px;background:#fff;text-align:center;line-height:60px;font-size:19px;font-weight:700;white-space:nowrap"></div>
@@ -150,9 +150,11 @@
     </div>
     <div id="file"><svg width="64" height="64" viewBox="0 0 24 24"><path d="M6 2.5h8l5 5v14H6z" fill="#fff" stroke="#17112B" stroke-width="1.2"/><path d="M14 2.5v5h5" fill="none" stroke="#17112B" stroke-width="1.2"/><path d="m9.5 13-2 2 2 2M14.5 13l2 2-2 2" fill="none" stroke="#7C4DFF" stroke-width="1.4" stroke-linecap="round"/></svg><div class="mono" style="font-size:11px;text-align:center;margin-top:-2px;color:#17112B;font-weight:700">index.html</div></div>
   </div>
+  <div class="abs mono" id="credit" style="left:0;right:0;bottom:34px;text-align:center;font-size:15px;color:rgba(255,255,255,0.85);letter-spacing:0.02em"></div>
   <svg id="cursor" viewBox="0 0 34 34"><path d="M4 2.5 L4 26.5 L10.2 20.6 L14.3 30 L18.6 28.1 L14.6 19 L23 19 Z" fill="#17112B" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>
 </div>
 
+<script src="../game-clips/games.js"></script>
 <script>
 window.SIZE = [1440, 1440]
 const BRAND = 'Promptcade'
@@ -307,37 +309,6 @@ function wipeState(t) {
 }
 
 // ---------- mini games ----------
-function runner(g, w, h, t) {
-  const sky = g.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, '#2a1266'); sky.addColorStop(1, '#ff4fd8')
-  g.fillStyle = sky; g.fillRect(0, 0, w, h)
-  g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(w * 0.7, h * 0.36, w * 0.18, 0, 7); g.fill()
-  for (let layer = 0; layer < 2; layer++) {
-    g.fillStyle = layer ? '#1b0f3d' : '#3b1c7a'; g.beginPath(); g.moveTo(0, h)
-    const off = (t * (layer ? 90 : 40)) % (w * 0.5)
-    for (let x = -w * 0.5; x <= w * 1.5; x += w * 0.25) g.lineTo(x - off, h * (layer ? 0.62 : 0.55) - (Math.sin(x * 0.02 + layer) * 0.5 + 0.5) * h * 0.12)
-    g.lineTo(w * 2, h); g.fill()
-  }
-  const gy = h * 0.74
-  g.fillStyle = '#0d0822'; g.fillRect(0, gy, w, h - gy)
-  g.strokeStyle = LIME; g.lineWidth = 3; g.beginPath(); g.moveTo(0, gy); g.lineTo(w, gy); g.stroke()
-  for (let i = 0; i < 3; i++) { const ox = (1 - ((t * 0.9 + i / 3) % 1)) * w * 1.3 - w * 0.15; g.fillStyle = '#ff4fd8'; g.fillRect(ox, gy - h * 0.06, w * 0.06, h * 0.06) }
-  const ph = (t % 1.1) / 1.1, jump = Math.sin(Math.PI * clamp(ph * 1.6)) * h * 0.17, s = w * 0.09
-  g.save(); g.translate(w * 0.25, gy - s / 2 - jump); g.rotate(ph < 0.62 ? ph * Math.PI : 0)
-  g.fillStyle = LIME; g.fillRect(-s / 2, -s / 2, s, s); g.restore()
-}
-function shooter(g, w, h, t) {
-  g.fillStyle = '#05040c'; g.fillRect(0, 0, w, h)
-  let seed = 7; const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
-  for (let i = 0; i < 60; i++) { const x = r() * w, sp = 60 + r() * 220, y = (r() * h + t * sp) % h; g.fillStyle = `rgba(255,255,255,${0.3 + r() * 0.6})`; g.fillRect(x, y, 2, 2 + sp / 60) }
-  for (let row = 0; row < 3; row++) for (let c = 0; c < 4; c++) {
-    if (((c * 7 + row * 3 + Math.floor(t * 2)) % 9) === 0) continue
-    const x = w * 0.2 + c * w * 0.2 + Math.sin(t * 1.6) * w * 0.08, y = h * 0.16 + row * h * 0.07
-    g.fillStyle = ['#ff4fd8', '#7c5cff', '#3de0ff'][row]; g.fillRect(x - w * 0.04, y - w * 0.025, w * 0.08, w * 0.05)
-  }
-  const sx = w / 2 + Math.sin(t * 2.3) * w * 0.3, sy = h * 0.82
-  for (let i = 0; i < 6; i++) { g.fillStyle = LIME; g.fillRect(sx - 2, sy - ((t * 800 + i * 100) % (h * 0.75)), 4, 14) }
-  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(sx, sy - w * 0.07); g.lineTo(sx - w * 0.06, sy + w * 0.035); g.lineTo(sx + w * 0.06, sy + w * 0.035); g.fill()
-}
 function dungeon(g, w, h, t, lit, chasers) {
   g.fillStyle = '#07050d'; g.fillRect(0, 0, w, h)
   const cs = w / 12
@@ -366,17 +337,19 @@ const els = { world: $('world'), shape: $('shape'), cursor: $('cursor'), stage: 
 const layers = STATES.map((s) => ({ s, el: $('L-' + s.id) }))
 $('brandName').textContent = BRAND
 const chipEls = CHIPS.map(([n, x, y]) => { const d = document.createElement('div'); d.className = 'chip'; d.textContent = n; d.style.left = 270 + x + 'px'; d.style.top = 85 + y + 'px'; $('L-chips').appendChild(d); return d })
-const BOARD = [['Sunset Drift', 'Fable 5.1', 1.84, 'linear-gradient(135deg,#ff6b9d,#ffd36b)'], ['Neon Dash', 'Opus 5.5', 1.52, 'linear-gradient(135deg,#2a1266,#ff4fd8)'], ['Lantern Keep', 'Opus 5.5', 1.21, 'linear-gradient(135deg,#15111f,#3de0ff)']]
-const rowEls = BOARD.map(([title, model, plays, grad], i) => {
+// real Opus 5.5 games (../game-clips/CREDITS.md)
+const RG = window.REAL_GAMES, GP = window.GAME_PLAYER
+const BOARD = [['kart', 'kart-select.jpg'], ['tidewater', 'tidewater-pier.jpg'], ['lancer', 'lancer-boss.jpg']].map(([k, img]) => [RG[k].title, RG[k].model, RG[k].genre, img, RG[k].by])
+const rowEls = BOARD.map(([title, model, genre, img, by], i) => {
   const r = document.createElement('div'); r.className = 'abs'
   Object.assign(r.style, { left: '22px', right: '22px', height: '72px', borderRadius: '18px', background: '#F7F5FD', border: '2px solid transparent', boxSizing: 'border-box' })
   r.innerHTML = `<div class="abs rank" style="left:16px;top:20px;font-size:22px;font-weight:800;color:#a39dbb">${i + 1}</div>
-    <div class="abs" style="left:48px;top:12px;width:44px;height:44px;border-radius:12px;background:${grad}"></div>
-    <div class="abs" style="left:106px;top:12px;font-size:18px;font-weight:750;white-space:nowrap">${title}</div>
-    <span class="abs badge" style="left:106px;top:38px;background:#EEEAFB;color:#5b3fd6">${'Claude ' + model}</span>
-    <div class="abs mono" style="right:16px;top:22px;font-size:17px;font-weight:700">${plays.toFixed(2)}M</div>`
+    <img class="abs" src="${GP.still(img)}" style="left:44px;top:10px;width:72px;height:48px;border-radius:10px;object-fit:cover">
+    <div class="abs" style="left:130px;top:12px;font-size:18px;font-weight:750;white-space:nowrap">${title}</div>
+    <span class="abs badge" style="left:130px;top:38px;background:#EEEAFB;color:#5b3fd6">Made with ${model}</span>
+    <div class="abs" style="right:16px;top:24px;font-size:15px;font-weight:650;color:#6f6887">${genre}</div>`
   $('L-board').appendChild(r)
-  return { r, model, rank: r.querySelector('.rank'), i }
+  return { r, genre, rank: r.querySelector('.rank'), i }
 })
 const segLabels = [...document.querySelectorAll('.seg')]
 const avEls = [...TEAM, ['+', 'transparent', WHITE]].map(([txt, bg, fg], i) => {
@@ -390,7 +363,10 @@ const claudeAv = document.createElement('div'); claudeAv.className = 'abs'
 Object.assign(claudeAv.style, { width: '64px', height: '64px', borderRadius: '32px', background: 'linear-gradient(135deg,#FF4FA0,#7C4DFF)', border: `4px solid ${LIME}`, boxSizing: 'border-box', top: '18px', display: 'grid', placeItems: 'center' })
 claudeAv.innerHTML = '<div style="width:18px;height:18px;border-radius:4px;background:#fff;transform:rotate(45deg)"></div>'
 $('L-team').appendChild(claudeAv)
-const feedA = $('feedA').getContext('2d'), feedB = $('feedB').getContext('2d'), buildG = $('buildCv').getContext('2d')
+const buildG = $('buildCv').getContext('2d')
+const playA = GP.clip($('feedA'), 'kart'), playB = GP.clip($('feedB'), 'lancer')
+const PENDING = []
+const need = (p) => { if (p) PENDING.push(p) }
 
 function visStyle(el, vis, blurMax = 10) {
   el.style.opacity = clamp(vis).toFixed(4)
@@ -461,13 +437,14 @@ function seek(tIn) {
   // feed card
   if (layerVis.feed(t) > 0.002) {
     const sw = clamp(swipe(t), -0.1, 1.1)
-    runner(feedA, 300, 480, t); shooter(feedB, 300, 480, t)
+    need(playA(t)); need(playB(t))
     $('feedA').style.transform = `translateY(${(-sw * 480).toFixed(2)}px)`
     $('feedB').style.transform = `translateY(${((1 - sw) * 480).toFixed(2)}px)`
     const second = sw > 0.5
-    $('feedTitle').textContent = second ? 'Star Swarm' : 'Neon Dash'
-    $('feedBy').textContent = second ? '@devkai' : '@mika.makes'
-    $('feedModel').textContent = second ? 'Made with Claude Sonnet 5' : 'Made with Claude Opus 5.5'
+    const fg = second ? RG.lancer : RG.kart
+    $('feedTitle').textContent = fg.title
+    $('feedBy').textContent = fg.by
+    $('feedModel').textContent = 'Made with ' + fg.model
     $('feedInfo').style.opacity = (1 - Math.sin(Math.PI * clamp(sw)) * 0.9).toFixed(3)
     const lk = clamp(likeSel(t), 0, 1.2)
     $('heart').style.color = second ? '#fff' : mixColor('#ffffff', C.pink, clamp(lk))
@@ -480,14 +457,14 @@ function seek(tIn) {
   Object.assign($('segBlob').style, { left: L + 'px', width: Math.max(0, R - L) + 'px' })
   segLabels.forEach((lab) => { const cx = +lab.dataset.cx; lab.style.color = cx > L && cx < R ? '#fff' : '#6f6887' })
   const ro = clamp(reorder(t), -0.1, 1.1)
-  const orderAfter = [2, 0, 1] // Sunset Drift drops to 3rd, the Opus games rise
+  const orderAfter = [1, 2, 0] // "Shooter": Nova Lancer rises to the top
   rowEls.forEach((row) => {
     const y = lerp(88 + row.i * 80, 88 + orderAfter[row.i] * 80, ro)
     row.r.style.top = y + 'px'
-    const opus = row.model.includes('Opus')
+    const opus = row.genre === 'Shooter'
     row.r.style.opacity = lerp(1, opus ? 1 : 0.4, clamp(ro)).toFixed(3)
     row.r.style.borderColor = opus ? `rgba(124,77,255,${(0.7 * clamp(ro)).toFixed(3)})` : 'transparent'
-    row.rank.textContent = ro > 0.5 ? (opus ? orderAfter[row.i] + 1 : '–') : row.i + 1
+    row.rank.textContent = ro > 0.5 ? (opus ? 1 : '–') : row.i + 1
   })
 
   // drop zone: the file rides the cursor, then lands
@@ -583,9 +560,17 @@ function seek(tIn) {
     $('liveTag').style.opacity = (0.6 + 0.4 * Math.sin(t * 6)).toFixed(3)
   }
 
+  // credit line while real games are on screen
+  const cr = $('credit')
+  const showCredit = tb >= 8.3 && tb < 15.8
+  cr.textContent = tb < 12 ? `${RG.kart.title} by ${RG.kart.by} · ${RG.lancer.title} by ${RG.lancer.by} · made with Claude Opus 5.5 · MIT` : `${RG.kart.title} · ${RG.tidewater.title} · ${RG.lancer.title} — real Opus 5.5 games, MIT`
+  cr.style.opacity = showCredit ? Math.min(1, (tb - 8.3) * 3, (15.8 - tb) * 3).toFixed(3) : 0
+
   // cursor (screen space)
   const cx = curX(t), cy = curY(t) + panY
   els.cursor.style.transform = `translate(${(720 + cx * c - 6).toFixed(2)}px, ${(720 + cy * c - 4).toFixed(2)}px) scale(${1 - 0.14 * clamp(cursorPress(t))})`
+  const ps = PENDING.splice(0)
+  return ps.length ? Promise.all(ps) : undefined
 }
 
 // ---------- sound cues for scripts/mix_audio.py ----------

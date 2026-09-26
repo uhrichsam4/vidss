@@ -11,3 +11,9 @@ app-ad/audio/*.wav
 app-ad-morph/tmp/
 app-ad-morph/out/
 app-ad-morph/audio/*.wav
+game-clips/src/
+game-clips/tmp/
+game-clips/frames/
+game-clips/clips/probe*
+game-clips/clips/*.log
+game-clips/clips/*.jpg
