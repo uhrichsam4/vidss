@@ -2,3 +2,6 @@ node_modules/
 recreation/tmp/
 recreation/out/
 recreation/audio/*.wav
+migration-map/tmp/
+migration-map/out/
+migration-map/audio/*.wav

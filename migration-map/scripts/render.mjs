@@ -1,8 +1,9 @@
 // Renders index.html by calling window.seek(t) for every subframe in headless Chromium.
 //
 //   node scripts/render.mjs still 3.2   -> out/still.png at t seconds
-//   node scripts/render.mjs sheet       -> out/sheet.jpg, one frame per beat (check timing first)
-//   node scripts/render.mjs full        -> out/video.mp4, 60fps, SUB subframes blended with tmix
+//   node scripts/render.mjs sheet 0.5   -> out/sheet.jpg, one tile every 0.5s (check timing first)
+//   node scripts/render.mjs cues        -> out/cues.json only (sound cues for scripts/mix_audio.py)
+//   node scripts/render.mjs full        -> out/migration.mp4, 60fps, SUB subframes blended with tmix, with audio/mix.wav
 //
 // Env: SUB (subframes per frame, default 4), WORKERS (parallel pages, default 4), FPS (default 60)
 import {chromium} from 'playwright';
@@ -19,8 +20,7 @@ const WORKERS = Number(process.env.WORKERS || 4);
 const W = 1920;
 const H = 1080;
 
-const beatsFile = path.join(root, 'audio', 'beats.json');
-const grid = fs.existsSync(beatsFile) ? JSON.parse(fs.readFileSync(beatsFile, 'utf8')) : null;
+const mixFile = path.join(root, 'audio', 'mix.wav');
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -44,7 +44,6 @@ async function openPage(browser) {
   page.on('pageerror', (e) => console.error('pageerror', e));
   await page.goto('file://' + path.join(root, 'index.html'));
   await page.evaluate(() => document.fonts.ready);
-  if (grid) await page.evaluate((beat) => window.configure({beat}), grid.beat);
   return page;
 }
 
@@ -59,26 +58,30 @@ async function main() {
   const browser = await launch();
   const first = await openPage(browser);
   const tl = await first.evaluate(() => window.timeline());
-  console.log(`beat=${tl.beat.toFixed(4)}s beats=${tl.beats} duration=${tl.duration.toFixed(3)}s`);
+  fs.writeFileSync(path.join(outDir, 'cues.json'), JSON.stringify(tl));
+  console.log(`duration=${tl.duration}s migrants=${tl.migrants} cues=${tl.cues.length} -> out/cues.json`);
 
   if (mode === 'still') {
     const t = Number(process.argv[3] || 0);
     await shot(first, t, path.join(outDir, 'still.png'));
     console.log('wrote out/still.png');
+  } else if (mode === 'cues') {
+    // cues.json was written above
   } else if (mode === 'sheet') {
     const dir = path.join(root, 'tmp', 'sheet');
     fs.rmSync(dir, {recursive: true, force: true});
     fs.mkdirSync(dir, {recursive: true});
-    const offset = Number(process.argv[3] ?? 0.6); // sample late in each beat so the state has settled
-    for (let b = 0; b < tl.beats; b++) {
-      await shot(first, (b + offset) * tl.beat, path.join(dir, `${String(b).padStart(3, '0')}.jpg`), 'jpeg');
+    const every = Number(process.argv[3] ?? 0.5); // seconds between tiles
+    const n = Math.floor(tl.duration / every);
+    for (let i = 0; i < n; i++) {
+      await shot(first, (i + 0.5) * every, path.join(dir, `${String(i).padStart(3, '0')}.jpg`), 'jpeg');
     }
-    const cols = 6;
-    const rows = Math.ceil(tl.beats / cols);
+    const cols = 5;
+    const rows = Math.ceil(n / cols);
     await run('ffmpeg', ['-v', 'error', '-y', '-framerate', '1', '-i', path.join(dir, '%03d.jpg'),
       '-vf', `scale=480:270,tile=${cols}x${rows}`,
       '-frames:v', '1', path.join(outDir, 'sheet.jpg')]);
-    console.log('wrote out/sheet.jpg (one tile per beat, number = beat)');
+    console.log(`wrote out/sheet.jpg (tile n = t ${every}*(n+0.5)s)`);
   } else if (mode === 'full') {
     fs.rmSync(framesDir, {recursive: true, force: true});
     fs.mkdirSync(framesDir, {recursive: true});
@@ -96,17 +99,16 @@ async function main() {
       }
     }));
     console.log(`rendered ${total} subframes in ${((Date.now() - started) / 1000).toFixed(0)}s`);
-    const audio = grid && fs.existsSync(path.join(root, grid.source)) ? path.join(root, grid.source) : null;
+    const audio = fs.existsSync(mixFile) ? mixFile : null;
     await run('ffmpeg', [
       '-v', 'error', '-y', '-framerate', String(FPS * SUB), '-i', path.join(framesDir, '%06d.jpg'),
-      // trim the song so its beat 0 lands on video t=0
-      ...(audio ? ['-ss', String(grid.start), '-i', audio] : []),
+      ...(audio ? ['-i', audio] : []),
       '-vf', SUB > 1 ? `tmix=frames=${SUB},select='eq(mod(n\\,${SUB})\\,${SUB - 1})',setpts=N/(${FPS}*TB)` : 'null',
       '-r', String(FPS), '-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p',
-      ...(audio ? ['-c:a', 'aac', '-b:a', '192k', '-t', String(tl.duration), '-af', `afade=t=out:st=${tl.duration - 1}:d=1`] : []),
-      '-movflags', '+faststart', path.join(outDir, 'video.mp4'),
+      ...(audio ? ['-c:a', 'aac', '-b:a', '192k', '-t', String(tl.duration)] : []),
+      '-movflags', '+faststart', path.join(outDir, 'migration.mp4'),
     ]);
-    console.log('wrote out/video.mp4');
+    console.log('wrote out/migration.mp4');
   }
   await browser.close();
 }

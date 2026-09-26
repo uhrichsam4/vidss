@@ -1,0 +1,673 @@
+<!doctype html>
+<!--
+  Migration from the rest of the world into the US, Canada, Europe, Australia and New Zealand, 1922–2100.
+  Every pixel is a pure function of time: seek(t). No CSS transitions, no timers, no state between frames.
+  Open directly in a browser to preview (add ?t=8.5 to freeze a moment); scripts/render.mjs drives seek(t) for export.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>migration map</title>
+<style>
+  @font-face { font-family: 'Inter'; src: url(assets/fonts/inter.woff2) format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'JetBrains Mono'; src: url(assets/fonts/jetbrains-mono.woff2) format('woff2'); font-weight: 100 800; font-display: block; }
+  html, body { margin: 0; background: #000; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview #stage { transform: scale(var(--fit, 0.5)); transform-origin: center; flex: none; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #05060b; color: #fff;
+    font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: 'tnum' 1; }
+  canvas { position: absolute; left: 0; top: 0; }
+  .abs { position: absolute; }
+  .mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.22em; text-transform: uppercase; }
+  .mask { overflow: hidden; }
+  #vignette { inset: 0; background: radial-gradient(ellipse 75% 70% at 50% 52%, transparent 55%, rgba(0,0,0,0.78) 100%); pointer-events: none; }
+  #grain { inset: 0; opacity: 0.07; mix-blend-mode: screen; pointer-events: none; }
+  .corner { width: 26px; height: 26px; border-color: rgba(255,255,255,0.22); border-style: solid; border-width: 0; }
+  #yearBox { left: 0; right: 0; top: 46px; text-align: center; }
+  #year { font-size: 104px; font-weight: 800; letter-spacing: -3px; line-height: 1; text-shadow: 0 0 40px rgba(255,255,255,0.25); }
+  #bar { left: 50%; top: 186px; width: 560px; height: 2px; margin-left: -280px; }
+  .tick { position: absolute; top: 12px; transform: translateX(-50%); font-size: 12px; color: rgba(255,255,255,0.4); letter-spacing: 0.1em; }
+  .tickmark { position: absolute; top: -4px; width: 1px; height: 10px; background: rgba(255,255,255,0.25); }
+  #pill { left: 50%; top: 228px; transform: translateX(-50%); font-size: 13px; padding: 7px 14px; border-radius: 20px; white-space: nowrap; }
+  .counter { width: 210px; text-align: center; }
+  .counter .lab { font-size: 14px; color: rgba(255,255,255,0.5); }
+  .counter .num { font-size: 44px; font-weight: 750; letter-spacing: -1.5px; margin-top: 6px; }
+  .counter .sub { font-size: 11px; color: rgba(255,255,255,0.32); margin-top: 6px; }
+  .event { left: 72px; bottom: 214px; width: 640px; }
+  .event .head { font-size: 30px; font-weight: 700; letter-spacing: -0.6px; line-height: 1.15; }
+  .event .det { font-size: 13px; color: rgba(255,255,255,0.5); margin-top: 10px; }
+  .dotkey { display: inline-block; width: 14px; height: 14px; border-radius: 7px; background: #ff3346; box-shadow: 0 0 14px #ff3346, 0 0 4px #ff3346; margin-right: 12px; vertical-align: 1px; }
+  .event .rule { width: 44px; height: 3px; background: #ff3346; margin-bottom: 16px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="map" width="1920" height="1080"></canvas>
+  <div class="abs" id="vignette"></div>
+  <svg class="abs" id="grain" width="1920" height="1080"><filter id="noise"><feTurbulence id="turb" type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="0"/></filter><rect width="100%" height="100%" filter="url(#noise)"/></svg>
+
+  <!-- HUD frame -->
+  <div class="abs corner" style="left:36px;top:36px;border-top-width:2px;border-left-width:2px"></div>
+  <div class="abs corner" style="right:36px;top:36px;border-top-width:2px;border-right-width:2px"></div>
+  <div class="abs corner" style="left:36px;bottom:36px;border-bottom-width:2px;border-left-width:2px"></div>
+  <div class="abs corner" style="right:36px;bottom:36px;border-bottom-width:2px;border-right-width:2px"></div>
+  <div class="abs" id="hudL" style="left:76px;top:62px">
+    <div style="font-size:20px;font-weight:750;letter-spacing:-0.3px">Moving to the West<span style="color:#ff3346">.</span></div>
+    <div class="mono" style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:8px">from the rest of the world</div>
+  </div>
+  <div class="abs" id="hudR" style="right:76px;top:64px;text-align:right">
+    <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px"><span class="dotkey"></span>1 dot = 100,000 people</div>
+    <div class="mono" style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:10px">each dot stays where it arrives</div>
+  </div>
+
+  <!-- intro title -->
+  <div class="abs" id="title" style="left:0;right:0;top:0;bottom:0">
+    <div class="abs" style="left:0;right:0;top:826px;text-align:center">
+      <div class="mask"><div id="t1" style="font-size:84px;font-weight:800;letter-spacing:-2.5px;text-shadow:0 0 50px rgba(255,255,255,0.25)">A Century of Migration<span style="color:#ff3346">.</span></div></div>
+      <div id="t2" class="mono" style="font-size:16px;color:rgba(255,255,255,0.55);margin-top:18px">1922 → 2100 &nbsp;·&nbsp; into USA · Canada · Europe · Australia · NZ</div>
+      <div id="t3" style="font-size:24px;font-weight:600;margin-top:26px"><span class="dotkey"></span>Each red dot = 100,000 people</div>
+    </div>
+  </div>
+
+  <!-- year + timeline -->
+  <div class="abs" id="yearBox">
+    <div class="mono" id="yearLab" style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:10px">Year</div>
+    <div class="mask" style="display:inline-block"><div id="year">1922</div></div>
+  </div>
+  <div class="abs" id="bar">
+    <div class="abs" style="inset:0;background:rgba(255,255,255,0.12)"></div>
+    <div class="abs" id="barProj" style="top:0;height:2px;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.35) 0 6px,transparent 6px 11px)"></div>
+    <div class="abs" id="barFill" style="left:0;top:0;height:2px;background:#ff3346;box-shadow:0 0 12px #ff3346"></div>
+    <div class="abs" id="barHead" style="top:-5px;width:12px;height:12px;border-radius:6px;background:#fff;margin-left:-6px;box-shadow:0 0 14px rgba(255,255,255,0.8)"></div>
+    <div id="ticks"></div>
+  </div>
+  <div class="abs mono" id="pill"></div>
+
+  <!-- "1 dot = 100,000 people" callout as the first dots fly -->
+  <div class="abs" id="callout" style="left:50%;top:520px;transform:translateX(-50%);text-align:center;white-space:nowrap">
+    <div style="display:inline-flex;align-items:center;gap:22px;padding:22px 34px;border-radius:22px;background:rgba(6,7,12,0.72);border:1px solid rgba(255,51,70,0.35);box-shadow:0 20px 60px rgba(0,0,0,0.5),0 0 60px rgba(255,51,70,0.12)">
+      <span id="calloutDot" style="display:inline-block;width:26px;height:26px;border-radius:13px;background:#ff3346;box-shadow:0 0 26px #ff3346,0 0 8px #ff3346"></span>
+      <span style="font-size:52px;font-weight:800;letter-spacing:-1.5px">= 100,000 people</span>
+    </div>
+    <div class="mono" style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:18px">every dot is 100,000 people who moved &nbsp;·&nbsp; it stays where it lands</div>
+  </div>
+
+  <!-- events -->
+  <div id="events"></div>
+
+  <!-- counters -->
+  <div class="abs" id="counters" style="left:50%;bottom:64px;width:1100px;margin-left:-550px;display:flex;justify-content:space-between">
+    <div class="counter"><div class="lab mono">United States</div><div class="num" id="c0">0</div><div class="sub mono" id="s0"></div></div>
+    <div class="counter"><div class="lab mono">Canada</div><div class="num" id="c1">0</div><div class="sub mono" id="s1"></div></div>
+    <div class="counter"><div class="lab mono">Europe</div><div class="num" id="c2">0</div><div class="sub mono" id="s2"></div></div>
+    <div class="counter"><div class="lab mono">Australia</div><div class="num" id="c3">0</div><div class="sub mono" id="s3"></div></div>
+    <div class="counter"><div class="lab mono">New Zealand</div><div class="num" id="c4">0</div><div class="sub mono" id="s4"></div></div>
+  </div>
+
+  <!-- end card -->
+  <div class="abs" id="endcard" style="left:0;right:0;top:0;bottom:0">
+    <div class="abs" style="left:0;right:0;top:380px;text-align:center">
+      <div id="e1" class="mono" style="font-size:15px;color:#ff3346">1922 — 2100</div>
+      <div class="mask" style="margin-top:18px"><div id="e2" style="font-size:72px;font-weight:800;letter-spacing:-2px;line-height:1.08">Every dot is 100,000 people<br/>who moved here and stayed<span style="color:#ff3346">.</span></div></div>
+      <div id="e3" class="mono" style="font-size:12px;line-height:2;color:rgba(255,255,255,0.45);margin-top:34px;letter-spacing:0.14em">
+        Arrivals from outside the US, Canada, Europe, Australia and NZ · rounded estimates<br/>
+        History: DHS · Statistics Canada / IRCC · Eurostat · OECD · UN DESA · ONS · ABS · Stats NZ<br/>
+        2025–2100: projections (US Census Bureau, StatCan, Eurostat EUROPOP2023, ONS, ABS, Stats NZ), medium scenarios
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="data/world.js"></script>
+<script src="data/flows.js"></script>
+<script>
+// ---------- stage ----------
+const W = 1920, H = 1080
+const DUR = 20
+const TL = {
+  titleIn: 0.25, globeEnd: 2.7, morphEnd: 4.0, hist0: 4.3, today: 12.4, proj0: 13.1, projEnd: 17.2, end: 17.8,
+}
+const Y0 = 1922, YNOW = 2025, Y1 = 2100
+const RED = '#ff3346', RED_PROJ = '#ff7a86'
+
+// ---------- math ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x))
+const lerp = (a, b, p) => a + (b - a) * p
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t) }
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3)
+const D2R = Math.PI / 180
+// closed-form step response of a damped spring, 0 -> 1 (f in Hz, z = damping ratio)
+function S(t, f, z) {
+  if (t <= 0) return 0
+  const w = 2 * Math.PI * f
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t)
+  const wd = w * Math.sqrt(1 - z * z)
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t))
+}
+// a value that retargets at each key = first value + one spring per change
+function track(keys, f = 0.5, z = 1) {
+  const base = keys[0][1]
+  const deltas = keys.slice(1).map((k, i) => [k[0], k[1] - keys[i][1], k[2] || f])
+  return (t) => deltas.reduce((v, [tk, d, ff]) => v + d * S(t - tk, ff, z), base)
+}
+function mulberry(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// ---------- time -> year ----------
+// speed is a smooth window per section; each window is scaled so it covers exactly its years
+const DT = 1 / 1200
+const yearTab = new Float64Array(Math.ceil(DUR / DT) + 2)
+;(() => {
+  const win = (a, b, r, t) => smooth(a, a + r, t) * (1 - smooth(b - r, b, t))
+  const hist = (t) => win(TL.hist0, TL.today, 0.6, t)
+  const proj = (t) => win(TL.proj0, TL.projEnd, 0.6, t)
+  let hSum = 0, pSum = 0
+  for (let i = 0; i < yearTab.length; i++) { hSum += hist(i * DT) * DT; pSum += proj(i * DT) * DT }
+  const a = (YNOW - Y0) / hSum, b = (Y1 - YNOW) / pSum
+  let y = Y0
+  for (let i = 0; i < yearTab.length; i++) { yearTab[i] = y; y += (hist(i * DT) * a + proj(i * DT) * b) * DT }
+})()
+function yearAt(t) {
+  const x = clamp(t, 0, DUR) / DT, i = Math.floor(x)
+  return lerp(yearTab[i], yearTab[Math.min(i + 1, yearTab.length - 1)], x - i)
+}
+// history years resolve before the "today" hold, projection years after it
+function timeAtYear(y) {
+  let lo = y < YNOW ? 0 : Math.round(TL.proj0 / DT), hi = y < YNOW ? Math.round(TL.today / DT) : yearTab.length - 1
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (yearTab[m] < y) lo = m; else hi = m }
+  return hi * DT
+}
+
+// ---------- projection ----------
+// Natural Earth I (Šavrič et al. 2011)
+function ne(lon, lat) {
+  const l = lon * D2R, p = lat * D2R, p2 = p * p, p4 = p2 * p2
+  return [
+    l * (0.8707 - 0.131979 * p2 + p4 * (-0.013791 + p4 * (0.003971 * p2 - 0.001529 * p4))),
+    p * (1.007226 + p2 * (0.015085 + p4 * (-0.044475 + 0.028874 * p2 - 0.005916 * p4))),
+  ]
+}
+const K = 1780 / (2 * 2.7353)
+const camLon = track([[0, -48], [6.4, -30, 0.35], [7.6, -5, 0.3], [8.8, 14, 0.3], [TL.proj0, 12, 0.3], [TL.end, 10, 0.35]])
+const camLat = track([[0, 30], [6.4, 30, 0.35], [7.6, 22, 0.3], [8.8, 12, 0.3], [TL.proj0, 13, 0.3], [TL.end, 10, 0.35]])
+const camZoom = track([[0, 1.9], [6.4, 1.6, 0.35], [7.6, 1.25, 0.3], [8.8, 0.98, 0.3], [TL.proj0, 1.0, 0.25], [TL.end, 0.94, 0.35]])
+function camera(t) {
+  const [cx, cy] = ne(camLon(t), camLat(t))
+  const z = camZoom(t)
+  return { cx, cy, s: K * z, z, oy: 30 }
+}
+const normLon = (lon) => ((((lon + 180) % 360) + 360) % 360) - 180
+function toScreen(cam, lon, lat) {
+  const [x, y] = ne(normLon(lon), lat)
+  return [W / 2 + (x - cam.cx) * cam.s, H / 2 + cam.oy - (y - cam.cy) * cam.s]
+}
+
+// ---------- world ----------
+const WD = window.WORLD.dots, NAMES = window.WORLD.names, ND = WD.length / 3
+const STEP = window.WORLD.step
+const DEST_COUNTRIES = new Set(['United States of America', 'Canada', 'Germany', 'France', 'United Kingdom', 'Spain', 'Italy',
+  'Netherlands', 'Belgium', 'Sweden', 'Austria', 'Switzerland', 'Poland', 'Czechia', 'Ireland', 'Portugal', 'Denmark', 'Norway',
+  'Finland', 'Luxembourg', 'Greece', 'Slovakia', 'Slovenia', 'Hungary', 'Estonia', 'Latvia', 'Lithuania', 'Croatia', 'Romania',
+  'Bulgaria', 'Iceland', 'Malta', 'Cyprus', 'Australia', 'New Zealand'])
+const isDest = new Uint8Array(ND)
+for (let i = 0; i < ND; i++) isDest[i] = DEST_COUNTRIES.has(NAMES[WD[i * 3 + 2]]) ? 1 : 0
+// on the globe, keep ~1 dot per degree of arc so the Arctic doesn't smear into lines; the rest fade in on the map
+const globeKeep = new Uint8Array(ND)
+for (let i = 0; i < ND; i++) {
+  const lat = WD[i * 3 + 1], col = Math.round((WD[i * 3] + 180) / STEP)
+  globeKeep[i] = col % Math.max(1, Math.round(1 / Math.cos(lat * D2R))) === 0 ? 1 : 0
+}
+const GY = 440 // globe centre (screen y)
+const landNE = new Float32Array(ND * 2)
+for (let i = 0; i < ND; i++) { const [x, y] = ne(WD[i * 3], WD[i * 3 + 1]); landNE[i * 2] = x; landNE[i * 2 + 1] = y }
+
+// on-land candidates near a place, weighted by closeness
+const candCache = {}
+function candidates(key) {
+  if (candCache[key]) return candCache[key]
+  const [lon, lat, country, r] = window.FLOWS.places[key]
+  const ci = NAMES.indexOf(country)
+  const list = [], cum = []
+  let sum = 0
+  for (let i = 0; i < ND; i++) {
+    if (WD[i * 3 + 2] !== ci) continue
+    const dx = (WD[i * 3] - lon) * Math.cos(lat * D2R), dy = WD[i * 3 + 1] - lat
+    const d2 = dx * dx + dy * dy
+    if (d2 > r * r) continue
+    sum += Math.exp(-d2 / (2 * (r * 0.55) ** 2))
+    list.push(i); cum.push(sum)
+  }
+  return (candCache[key] = { lon, lat, list, cum, sum })
+}
+function pickPoint(key, R) {
+  const c = candidates(key)
+  const jx = (R() - 0.5) * STEP * 0.7, jy = (R() - 0.5) * STEP * 0.7
+  if (!c.list.length) return [c.lon + jx * 0.4, c.lat + jy * 0.4]
+  const u = R() * c.sum
+  let lo = 0, hi = c.cum.length - 1
+  while (lo < hi) { const m = (lo + hi) >> 1; if (c.cum[m] < u) lo = m + 1; else hi = m }
+  const i = c.list[lo]
+  return [WD[i * 3] + jx, WD[i * 3 + 1] + jy]
+}
+function weighted(obj) {
+  const keys = Object.keys(obj), cum = []
+  let s = 0
+  for (const k of keys) { s += obj[k]; cum.push(s) }
+  return (R) => { const u = R() * s; return keys[cum.findIndex((c) => c >= u)] }
+}
+
+// ---------- migrants: one dot per 100,000 people ----------
+const REGION = (set) => ({US: 0, CA: 1, EU: 2, AU: 3, NZ: 4})[set.slice(0, 2)]
+const migrants = []
+;(() => {
+  const R = mulberry(1922)
+  const { flows, destinations, projections, projectionYears } = window.FLOWS
+  const destPick = {}
+  for (const k in destinations) destPick[k] = weighted(destinations[k])
+  const add = (set, origin, year, proj) => {
+    const [lon0, lat0] = pickPoint(origin, R)
+    const [lon1, lat1] = pickPoint(destPick[set](R), R)
+    const dlon = ((((lon1 - lon0 + 540) % 360) + 360) % 360) - 180
+    const dist = Math.hypot(dlon * Math.cos(((lat0 + lat1) / 2) * D2R), lat1 - lat0)
+    // a dot lands in its year, so the counters match the year on screen; it takes off `fly` seconds earlier
+    const fly = proj ? 0.45 + 0.6 * Math.min(1, dist / 110) : 0.5 + 0.85 * Math.min(1, dist / 110)
+    const earliest = proj ? TL.today + 0.15 : TL.morphEnd - 0.1
+    const td = Math.max(earliest, timeAtYear(year) - fly)
+    const ta = Math.max(td + 0.6, timeAtYear(year))
+    migrants.push({ lon0, lat0, dlon, dlat: lat1 - lat0, lon1, lat1, bulge: Math.min(22, 0.2 * dist), td, ta, proj, region: REGION(set) })
+  }
+  for (const [set, origin, from, to, m] of flows) {
+    const n = Math.floor(m * 10 + R())
+    for (let i = 0; i < n; i++) add(set, origin, from + R() * (to + 1 - from), false)
+  }
+  const [p0, p1] = projectionYears
+  for (const [set, rate, shares] of projections) {
+    const pick = weighted(shares)
+    const n = Math.round(rate * (p1 - p0) * 10)
+    for (let i = 0; i < n; i++) add(set, pick(R), p0 + R() * (p1 - p0), true)
+  }
+  migrants.sort((a, b) => a.td - b.td)
+})()
+function arcPoint(m, u) {
+  const e = 0.5 - 0.5 * Math.cos(Math.PI * u)
+  return [m.lon0 + m.dlon * e, Math.min(82, m.lat0 + m.dlat * e + m.bulge * Math.sin(Math.PI * e))]
+}
+
+// ---------- sprites ----------
+function glowSprite(color, size) {
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const g = c.getContext('2d')
+  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  grad.addColorStop(0, color); grad.addColorStop(0.25, color.replace('1)', '0.35)')); grad.addColorStop(1, color.replace('1)', '0)'))
+  g.fillStyle = grad
+  g.fillRect(0, 0, size, size)
+  return c
+}
+const GLOW = glowSprite('rgba(255,51,70,1)', 64)
+const GLOW_P = glowSprite('rgba(255,122,134,1)', 64)
+
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id)
+const ctx = $('map').getContext('2d')
+const BAR_W = 560
+const barX = (y) => ((clamp(y, Y0, Y1) - Y0) / (Y1 - Y0)) * BAR_W
+for (const y of [1922, 1950, 2000, 2025, 2050, 2100]) {
+  const d = document.createElement('div')
+  d.className = 'tick mono'
+  d.style.left = barX(y) + 'px'
+  d.textContent = y
+  $('ticks').appendChild(d)
+  const m = document.createElement('div')
+  m.className = 'tickmark'
+  m.style.left = barX(y) + 'px'
+  $('ticks').appendChild(m)
+}
+$('barProj').style.left = barX(YNOW) + 'px'
+$('barProj').style.width = BAR_W - barX(YNOW) + 'px'
+
+// captions: one at a time, each held long enough to read
+const EVENTS = [
+  [1922, 1931, 'Mexico and the Caribbean send most arrivals', '1924: US quotas bar almost all Asian immigration'],
+  [1931, 1945, 'Depression and World War II', 'migration nearly stops'],
+  [1945, 1958, 'Caribbean and South Asians come to Britain', 'Windrush 1948 · Algerians to France · Indonesians to the Netherlands'],
+  [1958, 1966, 'Europe recruits workers from Turkey and North Africa', '1961: West Germany–Turkey agreement'],
+  [1966, 1976, 'Race-based immigration rules end', 'US 1965 · Canada 1967 · White Australia policy ends 1973'],
+  [1976, 1989, 'Refugees from Vietnam, Laos, Cambodia', 'resettled in the US, Canada, Australia, France'],
+  [1989, 2003, 'Asia and Latin America lead', 'Mexico · China · India · Philippines · wars in Somalia and Iraq'],
+  [2003, 2013, 'Spain, Australia and Canada boom', 'Latin Americans to Spain · Indians and Chinese to Australia'],
+  [2013, 2020, 'Refugees from Syria, Afghanistan, Iraq', 'peak asylum claims in Europe 2015–16'],
+  [2020, 2025, 'Record arrivals after the pandemic', 'US · Canada · UK · Australia'],
+  [2025, 2101, 'Projection: medium scenario', 'if recent trends continue · not a prediction'],
+].map(([a, b, head, det]) => {
+  const el = document.createElement('div')
+  el.className = 'abs event'
+  el.innerHTML = `<div class="rule"></div><div class="mask"><div class="head">${head}</div></div><div class="det mono">${det}</div>`
+  $('events').appendChild(el)
+  const t0 = a === Y0 ? TL.hist0 : a === YNOW ? TL.today + 0.1 : timeAtYear(a)
+  return { el, head: el.querySelector('.head'), t0, t1: b > Y1 ? TL.end : timeAtYear(b) }
+})
+
+function fade(el, v, blur = 10, dy = 0) {
+  el.style.opacity = clamp(v).toFixed(4)
+  const b = (1 - clamp(v)) * blur
+  el.style.filter = b > 0.05 ? `blur(${b.toFixed(2)}px)` : 'none'
+  el.style.transform = dy ? `translateY(${((1 - clamp(v)) * dy).toFixed(2)}px)` : ''
+  el.style.visibility = v < 0.002 ? 'hidden' : 'visible'
+}
+const fmtM = (m) => (m < 10 ? m.toFixed(1) : Math.round(m).toString()) + 'M'
+
+// ---------- draw ----------
+function drawBackground(t) {
+  const g = ctx.createRadialGradient(W / 2, H * 0.55, 0, W / 2, H * 0.55, W * 0.7)
+  g.addColorStop(0, '#0d1020'); g.addColorStop(1, '#040509')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, W, H)
+}
+
+function drawGraticule(cam, alpha) {
+  if (alpha <= 0.003) return
+  ctx.strokeStyle = `rgba(150,165,210,${0.07 * alpha})`
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (let lon = -180; lon <= 180; lon += 30) {
+    for (let lat = -56; lat <= 83; lat += 3) {
+      const [x, y] = toScreen(cam, lon === 180 ? 179.999 : lon, lat)
+      lat === -56 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+    }
+  }
+  for (let lat = -30; lat <= 60; lat += 30) {
+    for (let lon = -180; lon <= 180; lon += 3) {
+      const [x, y] = toScreen(cam, lon === 180 ? 179.999 : lon, lat)
+      lon === -180 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+    }
+  }
+  ctx.stroke()
+}
+
+// globe (orthographic) -> map (Natural Earth): each dot interpolates between its two screen positions
+function drawLand(t, cam) {
+  const morph = clamp((t - TL.globeEnd) / (TL.morphEnd - TL.globeEnd))
+  const lon0 = lerp(70, -48, easeInOut(clamp(t / TL.globeEnd))) - 10 * easeInOut(morph)
+  const lat0 = lerp(10, 28, easeInOut(clamp(t / TL.globeEnd)))
+  const R = globeRadius(t)
+  const reveal = smooth(0, 0.9, t)
+  const zs = Math.pow(cam.z, 0.55)
+  const baseSize = lerp(2.1, 2.3 * zs, morph)
+  const hi = smooth(TL.hist0 - 0.4, TL.hist0 + 0.6, t)
+  const sl0 = Math.sin(lat0 * D2R), cl0 = Math.cos(lat0 * D2R)
+  const cols = [[], [], []] // dim land, highlighted land, globe back side
+  for (let i = 0; i < ND; i++) {
+    const lon = WD[i * 3], lat = WD[i * 3 + 1]
+    let x, y
+    const mx = W / 2 + (landNE[i * 2] - cam.cx) * cam.s, my = H / 2 + cam.oy - (landNE[i * 2 + 1] - cam.cy) * cam.s
+    let vis = 1
+    if (morph < 1) {
+      const p = lat * D2R, dl = (lon - lon0) * D2R, cp = Math.cos(p)
+      let gx = cp * Math.sin(dl), gy = cl0 * Math.sin(p) - sl0 * cp * Math.cos(dl)
+      const gz = sl0 * Math.sin(p) + cl0 * cp * Math.cos(dl)
+      if (gz < 0) { const n = Math.hypot(gx, gy) || 1; gx /= n; gy /= n } // back side starts on the rim
+      // centre of the globe unrolls first, the far side last
+      const dlon = Math.abs(normLon(lon - lon0))
+      const m = easeInOut(clamp(morph * 1.6 - (dlon / 180) * 0.6))
+      x = lerp(W / 2 + gx * R, mx, m)
+      y = lerp(GY - gy * R, my, m)
+      vis = gz >= 0 ? lerp(0.35 + 0.65 * gz, 1, m) : smooth(0.45, 1, m)
+      if (!globeKeep[i]) vis *= smooth(0.3, 1, m)
+      vis *= reveal * smooth(0, 1, (reveal * 1.4 - (1 - gz) * 0.4))
+    } else { x = mx; y = my }
+    if (x < -10 || x > W + 10 || y < -10 || y > H + 10 || vis < 0.02) continue
+    const bucket = morph < 1 && vis < 0.98 ? 2 : isDest[i] ? 1 : 0
+    cols[bucket].push(x, y, vis)
+  }
+  const draw = (arr, rgb, a) => {
+    ctx.fillStyle = `rgb(${rgb})`
+    for (let k = 0; k < arr.length; k += 3) {
+      ctx.globalAlpha = a * arr[k + 2]
+      const s = baseSize
+      ctx.fillRect(arr[k] - s / 2, arr[k + 1] - s / 2, s, s)
+    }
+  }
+  draw(cols[2], '150,160,190', 0.55)
+  draw(cols[0], '125,135,165', 0.42)
+  draw(cols[1], lerp(125, 200, hi) + ',' + lerp(135, 208, hi) + ',' + lerp(165, 230, hi), lerp(0.42, 0.62, hi))
+  ctx.globalAlpha = 1
+  return { morph, R }
+}
+
+function globeRadius(t) { return lerp(270, 340, easeOut(t / TL.globeEnd)) }
+function drawOcean(t) {
+  const a = (1 - smooth(TL.globeEnd, TL.globeEnd + 0.5, t)) * smooth(0, 1, t)
+  if (a <= 0.003) return
+  const R = globeRadius(t)
+  const g = ctx.createRadialGradient(W / 2 - R * 0.3, GY - R * 0.35, R * 0.1, W / 2, GY, R)
+  g.addColorStop(0, `rgba(28,34,66,${a})`); g.addColorStop(1, `rgba(10,12,26,${a})`)
+  ctx.fillStyle = g
+  ctx.beginPath(); ctx.arc(W / 2, GY, R, 0, Math.PI * 2); ctx.fill()
+}
+
+function drawAtmosphere(t, morph, R) {
+  const a = (1 - smooth(0, 0.6, morph)) * smooth(0, 1, t)
+  if (a <= 0.003) return
+  ctx.save()
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(W / 2, GY, R, 0, Math.PI * 2, true); ctx.clip()
+  const g = ctx.createRadialGradient(W / 2, GY, R, W / 2, GY, R * 1.4)
+  g.addColorStop(0, `rgba(90,110,255,${0.2 * a})`); g.addColorStop(1, 'rgba(90,110,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, W, H)
+  ctx.restore()
+  ctx.strokeStyle = `rgba(150,170,255,${0.28 * a})`
+  ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.arc(W / 2, GY, R, 0, Math.PI * 2); ctx.stroke()
+}
+
+function drawMigrants(t, cam) {
+  const zs = Math.pow(cam.z, 0.5)
+  const settledHist = [], settledProj = [], pulses = []
+  ctx.lineCap = 'round'
+  for (const m of migrants) {
+    if (m.td > t) break
+    if (t >= m.ta) {
+      const [x, y] = toScreen(cam, m.lon1, m.lat1)
+      ;(m.proj ? settledProj : settledHist).push(x, y)
+      if (t - m.ta < 0.6) pulses.push(x, y, (t - m.ta) / 0.6, m.proj)
+      continue
+    }
+    const u = (t - m.td) / (m.ta - m.td)
+    // faint full route, then a tapered comet tail
+    const col = m.proj ? '255,122,134' : '255,51,70'
+    ctx.strokeStyle = `rgba(${col},0.07)`
+    ctx.lineWidth = 1
+    let px, py
+    ctx.beginPath()
+    for (let k = 0; k <= 24; k++) {
+      const [lon, lat] = arcPoint(m, k / 24)
+      const [x, y] = toScreen(cam, lon, lat)
+      if (k === 0 || Math.abs(x - px) > W / 2) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+      px = x; py = y
+    }
+    ctx.stroke()
+    const TAIL = 7
+    for (let k = TAIL; k >= 1; k--) {
+      const ua = clamp(u - k * 0.03), ub = clamp(u - (k - 1) * 0.03)
+      const [la, pa] = arcPoint(m, ua), [lb, pb] = arcPoint(m, ub)
+      const [xa, ya] = toScreen(cam, la, pa), [xb, yb] = toScreen(cam, lb, pb)
+      if (Math.abs(xa - xb) > W / 2) continue
+      ctx.strokeStyle = `rgba(${col},${(0.55 * (1 - k / (TAIL + 1))).toFixed(3)})`
+      ctx.lineWidth = 2.6 * zs * (1 - k / (TAIL + 2))
+      ctx.beginPath(); ctx.moveTo(xa, ya); ctx.lineTo(xb, yb); ctx.stroke()
+    }
+    const [lon, lat] = arcPoint(m, u)
+    const [x, y] = toScreen(cam, lon, lat)
+    ctx.globalCompositeOperation = 'lighter'
+    const g = 22 * zs
+    ctx.drawImage(m.proj ? GLOW_P : GLOW, x - g / 2, y - g / 2, g, g)
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.fillStyle = '#fff'
+    ctx.beginPath(); ctx.arc(x, y, 1.6 * zs, 0, Math.PI * 2); ctx.fill()
+  }
+  // settled dots: soft additive glow, then solid cores
+  const r = 2.1 * zs, g = 13 * zs
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.globalAlpha = 0.12
+  for (let k = 0; k < settledHist.length; k += 2) ctx.drawImage(GLOW, settledHist[k] - g / 2, settledHist[k + 1] - g / 2, g, g)
+  for (let k = 0; k < settledProj.length; k += 2) ctx.drawImage(GLOW_P, settledProj[k] - g / 2, settledProj[k + 1] - g / 2, g, g)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  const cores = (arr, color) => {
+    ctx.fillStyle = color
+    ctx.beginPath()
+    for (let k = 0; k < arr.length; k += 2) { ctx.moveTo(arr[k] + r, arr[k + 1]); ctx.arc(arr[k], arr[k + 1], r, 0, Math.PI * 2) }
+    ctx.fill()
+  }
+  cores(settledHist, RED)
+  cores(settledProj, RED_PROJ)
+  // landing ripples
+  for (let k = 0; k < pulses.length; k += 4) {
+    const p = pulses[k + 2]
+    ctx.strokeStyle = pulses[k + 3] ? `rgba(255,122,134,${(0.6 * (1 - p)).toFixed(3)})` : `rgba(255,80,95,${(0.6 * (1 - p)).toFixed(3)})`
+    ctx.lineWidth = 1.2
+    ctx.beginPath(); ctx.arc(pulses[k], pulses[k + 1], r + 9 * zs * easeOut(p), 0, Math.PI * 2); ctx.stroke()
+  }
+}
+
+function countArrived(t) {
+  const c = [0, 0, 0, 0, 0]
+  for (const m of migrants) { if (m.td > t) break; if (t >= m.ta) c[m.region]++ }
+  return c
+}
+
+// ---------- seek ----------
+function seek(tIn) {
+  const t = clamp(tIn, 0, DUR)
+  const cam = camera(t)
+  drawBackground(t)
+  const mapIn = smooth(TL.globeEnd + 0.6, TL.morphEnd + 0.4, t)
+  drawGraticule(cam, mapIn)
+  drawOcean(t)
+  const { morph, R } = drawLand(t, cam)
+  drawAtmosphere(t, morph, R)
+  drawMigrants(t, cam)
+  const shown = countArrived(Math.round(t * 60) / 60)
+
+  // end-card dim over the map
+  const endV = smooth(TL.end, TL.end + 0.8, t)
+  if (endV > 0) { ctx.fillStyle = `rgba(4,5,9,${(0.62 * endV).toFixed(3)})`; ctx.fillRect(0, 0, W, H) }
+
+  $('turb').setAttribute('seed', Math.floor(t * 24) % 50)
+
+  // intro title
+  const tIn1 = smooth(TL.titleIn, TL.titleIn + 0.9, t), tOut = smooth(TL.globeEnd - 0.2, TL.globeEnd + 0.4, t)
+  $('t1').style.transform = `translateY(${((1 - easeOut(tIn1)) * 110).toFixed(2)}%)`
+  $('t1').style.filter = `blur(${((1 - tIn1) * 12 + tOut * 14).toFixed(2)}px)`
+  fade($('t2'), smooth(TL.titleIn + 0.4, TL.titleIn + 1.2, t) * (1 - tOut), 8, 12)
+  fade($('t3'), smooth(TL.titleIn + 0.9, TL.titleIn + 1.6, t) * (1 - tOut), 8, 12)
+  const co = smooth(TL.hist0 + 0.1, TL.hist0 + 0.5, t) * (1 - smooth(TL.hist0 + 2.0, TL.hist0 + 2.4, t))
+  const cEl = $('callout')
+  cEl.style.opacity = co.toFixed(4)
+  cEl.style.visibility = co < 0.002 ? 'hidden' : 'visible'
+  cEl.style.filter = co < 0.998 ? `blur(${((1 - co) * 10).toFixed(2)}px)` : 'none'
+  cEl.style.transform = `translateX(-50%) scale(${(0.92 + 0.08 * easeOut(co)).toFixed(4)})`
+  $('calloutDot').style.transform = `scale(${(1 + 0.18 * Math.sin((t - TL.hist0) * 6)).toFixed(4)})`
+  $('title').style.opacity = (1 - tOut).toFixed(4)
+  $('title').style.visibility = tOut > 0.998 ? 'hidden' : 'visible'
+
+  // HUD
+  const hud = smooth(TL.morphEnd - 0.5, TL.morphEnd + 0.3, t) * (1 - endV)
+  for (const id of ['hudL', 'hudR']) fade($(id), hud, 8)
+  const ui = smooth(TL.morphEnd - 0.2, TL.hist0 + 0.2, t)
+  const y = yearAt(t)
+  const tFrame = Math.round(t * 60) / 60 // numbers change once per output frame, not per blur subframe
+  const yr = Math.min(Y1, Math.floor(yearAt(tFrame) + 1e-6))
+  $('year').textContent = yr
+  $('year').style.transform = `translateY(${((1 - easeOut(ui)) * 100).toFixed(2)}%)`
+  fade($('yearBox'), ui, 10)
+  fade($('bar'), ui, 6)
+  $('barFill').style.width = barX(y) + 'px'
+  $('barFill').style.background = y > YNOW ? `linear-gradient(90deg, ${RED} ${((barX(YNOW) / Math.max(1, barX(y))) * 100).toFixed(1)}%, ${RED_PROJ} 0)` : RED
+  $('barHead').style.left = barX(y) + 'px'
+  const proj = t >= TL.today + 0.1
+  const pill = $('pill')
+  pill.textContent = proj ? (t < TL.proj0 ? 'Latest data: 2024 → projection' : 'Projection · medium scenario') : 'Historical data'
+  pill.style.color = proj ? RED_PROJ : 'rgba(255,255,255,0.55)'
+  pill.style.border = proj ? `1px dashed ${RED_PROJ}` : '1px solid rgba(255,255,255,0.18)'
+  pill.style.background = proj ? 'rgba(255,122,134,0.08)' : 'rgba(255,255,255,0.03)'
+  const holdPop = Math.exp(-Math.max(0, t - TL.today - 0.1) * 5) * (t > TL.today + 0.1 ? 1 : 0)
+  fade(pill, ui * (1 - endV), 6)
+  pill.style.transform = `translateX(-50%) scale(${(1 + 0.12 * holdPop).toFixed(4)})`
+  $('yearLab').textContent = proj && t < TL.proj0 ? 'Latest data' : y > YNOW ? 'Year · projected' : 'Year'
+  $('yearLab').style.color = y > YNOW || (proj && t < TL.proj0) ? RED_PROJ : 'rgba(255,255,255,0.45)'
+
+  // counters (each dot = 0.1M)
+  fade($('counters'), ui, 8, 20)
+  for (let i = 0; i < 5; i++) {
+    $('c' + i).textContent = fmtM(shown[i] * 0.1)
+    $('s' + i).textContent = `${shown[i].toLocaleString('en-US')} dots × 100k`
+  }
+
+  // event captions
+  for (let i = 0; i < EVENTS.length; i++) {
+    const e = EVENTS[i]
+    const end = i + 1 < EVENTS.length ? Math.min(e.t1, EVENTS[i + 1].t0) : e.t1
+    const v = smooth(e.t0, e.t0 + 0.25, t) * (1 - smooth(end - 0.2, end, t)) * (1 - endV)
+    fade(e.el, v, 10, 14)
+    e.head.style.transform = `translateY(${((1 - easeOut(smooth(e.t0, e.t0 + 0.35, t))) * 100).toFixed(2)}%)`
+  }
+
+  // end card
+  const ec = $('endcard')
+  ec.style.visibility = endV > 0.002 ? 'visible' : 'hidden'
+  fade($('e1'), smooth(TL.end + 0.2, TL.end + 0.8, t), 6, 10)
+  $('e2').style.transform = `translateY(${((1 - easeOut(smooth(TL.end + 0.3, TL.end + 1.2, t))) * 110).toFixed(2)}%)`
+  $('e2').style.filter = `blur(${((1 - smooth(TL.end + 0.3, TL.end + 1.2, t)) * 10).toFixed(2)}px)`
+  fade($('e3'), smooth(TL.end + 0.9, TL.end + 1.6, t), 6, 10)
+}
+
+// ---------- sound cues for scripts/mix_audio.py ----------
+function timeline() {
+  const cues = [
+    { t: 0.05, kind: 'intro' },
+    { t: TL.titleIn + 0.1, kind: 'shimmer' },
+    { t: TL.globeEnd, kind: 'whoosh' },
+    { t: TL.morphEnd, kind: 'impact' },
+    { t: TL.today + 0.1, kind: 'today' },
+    { t: TL.proj0, kind: 'swell' },
+    { t: TL.end, kind: 'end' },
+  ]
+  for (let d = 1930; d <= 2100; d += 10) cues.push({ t: timeAtYear(d), kind: 'tick', year: d })
+  for (const e of EVENTS) cues.push({ t: e.t0, kind: 'caption' })
+  for (const m of migrants) {
+    const [x] = toScreen(camera(m.ta), m.lon1, m.lat1)
+    cues.push({ t: m.ta, kind: 'land', pan: clamp((x / W) * 2 - 1, -1, 1), proj: m.proj })
+  }
+  return { duration: DUR, migrants: migrants.length, cues }
+}
+
+window.seek = seek
+window.timeline = timeline
+window.configure = () => {}
+
+if (!window.__RENDER__) {
+  document.body.classList.add('preview')
+  const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth / W, innerHeight / H))
+  fit(); addEventListener('resize', fit)
+  const params = new URLSearchParams(location.search)
+  document.fonts.ready.then(() => {
+    if (params.has('t')) seek(+params.get('t'))
+    else {
+      const t0 = performance.now()
+      const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop) }
+      loop()
+    }
+  })
+}
+</script>
+</body>
+</html>
