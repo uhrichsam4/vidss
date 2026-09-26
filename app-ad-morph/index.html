@@ -1,0 +1,628 @@
+<!doctype html>
+<!--
+  App ad, "UI morph" style: one shape, never cut, morphing through the app's features on a 125 BPM grid.
+  Every section floods a new canvas color from the cursor; the shape floods its own color the same way.
+  Every style is a pure function of time: seek(t). No CSS transitions, no timers, no state between frames.
+  Open in a browser to preview (?t=5.2 freezes a moment). Change the app name in BRAND.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>app ad morph</title>
+<style>
+  @font-face { font-family: 'Inter'; src: url(assets/fonts/inter.woff2) format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'JetBrains Mono'; src: url(assets/fonts/jetbrains-mono.woff2) format('woff2'); font-weight: 100 800; font-display: block; }
+  html, body { margin: 0; background: #111; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview #stage { transform: scale(var(--fit, 0.5)); transform-origin: center; flex: none; }
+  #stage { position: relative; width: 1440px; height: 1440px; overflow: hidden; font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased; color: #17112B; font-feature-settings: 'tnum' 1; }
+  #wipe { position: absolute; border-radius: 50%; }
+  .deco { position: absolute; }
+  /* no will-change: the camera scales this subtree and text would rasterize blurry */
+  #world { position: absolute; left: 720px; top: 720px; width: 0; height: 0; transform-origin: 0 0; }
+  #shape { position: absolute; overflow: hidden; }
+  .layer, .abs { position: absolute; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  svg { display: block; overflow: visible; }
+  .stroke { fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+  .chip { position: absolute; height: 44px; line-height: 44px; padding: 0 18px; border-radius: 22px; font-size: 17px; font-weight: 600;
+    transform: translate(-50%, -50%); white-space: nowrap; }
+  .badge { display: inline-block; padding: 4px 9px; border-radius: 10px; font-size: 12px; font-weight: 650; white-space: nowrap; }
+  .back { position: absolute; left: -220px; width: 440px; height: 104px; border-radius: 28px; background: #fff; overflow: hidden; }
+  .tip .ic { position: absolute; left: 22px; top: 22px; width: 60px; height: 60px; border-radius: 18px; display: grid; place-items: center; background: #17112B; }
+  .tip .tt { position: absolute; left: 98px; top: 25px; font-size: 18px; font-weight: 700; white-space: nowrap; }
+  .tip .st { position: absolute; left: 98px; top: 52px; font-size: 15px; color: #6f6887; white-space: nowrap; }
+  #cursor { position: absolute; left: 0; top: 0; width: 50px; height: 50px; transform-origin: 6px 4px; }
+  #file { position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="wipe"></div>
+  <div class="deco" id="decoRing" style="width:760px;height:760px;border-radius:50%;box-sizing:border-box;border:110px solid rgba(255,255,255,0.13)"></div>
+  <div class="deco" id="decoSquare" style="width:520px;height:520px;border-radius:120px;background:rgba(0,0,0,0.07)"></div>
+  <div class="deco" id="decoDot" style="width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.2)"></div>
+  <div id="world">
+    <div class="back" id="back2"><div class="tip abs" style="inset:0"><div class="ic"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2.8a6.7 6.7 0 0 0-4 12.1V18h8v-3.1A6.7 6.7 0 0 0 12 2.8z" fill="#C6F432"/></svg></div><div class="tt">Creator tip</div><div class="st">Ask Claude for a "juice pass"</div></div></div>
+    <div class="back" id="back1"><div class="tip abs" style="inset:0"><div class="ic"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2.8a6.7 6.7 0 0 0-4 12.1V18h8v-3.1A6.7 6.7 0 0 0 12 2.8z" fill="#C6F432"/></svg></div><div class="tt">Creator tip</div><div class="st">Keep builds under 5 MB</div></div></div>
+    <div id="shape">
+      <div class="abs" id="shapeWipe" style="border-radius:50%"></div>
+
+      <div class="layer" id="L-brand" data-w="470" data-h="124">
+        <div class="abs" id="logo" style="left:26px;top:24px;width:76px;height:76px;border-radius:22px;background:linear-gradient(135deg,#FF4FA0,#7C4DFF 60%,#1FCFEA);display:grid;place-items:center">
+          <svg width="38" height="38" viewBox="0 0 24 24"><path d="M8 4.8v14.4L19.5 12z" fill="#fff"/><circle cx="4.6" cy="7" r="1.6" fill="#C6F432"/><circle cx="4.6" cy="17" r="1.6" fill="#C6F432"/></svg>
+        </div>
+        <div class="abs" id="brandName" style="left:122px;top:30px;font-size:50px;font-weight:800;letter-spacing:-2px;line-height:64px"></div>
+      </div>
+
+      <div class="layer" id="L-search" data-w="540" data-h="104">
+        <svg class="abs" style="left:30px;top:36px;color:#8a84a3" width="32" height="32" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" class="stroke" style="stroke-width:2.4"/><path d="m15.5 15.5 5 5" class="stroke" style="stroke-width:2.4"/></svg>
+        <div class="abs" id="query" style="left:80px;top:28px;font-size:32px;font-weight:550;line-height:48px;white-space:nowrap"></div>
+      </div>
+
+      <div class="layer" id="L-chips" data-w="540" data-h="170"></div>
+
+      <div class="layer" id="L-feed" data-w="300" data-h="480">
+        <canvas class="abs" id="feedA" width="300" height="480" style="left:0;top:0"></canvas>
+        <canvas class="abs" id="feedB" width="300" height="480" style="left:0;top:0"></canvas>
+        <div class="abs" style="inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.25),transparent 25%,transparent 55%,rgba(0,0,0,0.78))"></div>
+        <div class="abs" style="left:0;right:0;top:18px;text-align:center;color:#fff;font-size:15px;font-weight:700"><span style="opacity:.6;margin-right:16px">Following</span><span style="border-bottom:2px solid #fff;padding-bottom:4px">For You</span></div>
+        <div class="abs" id="feedInfo" style="left:20px;bottom:24px;color:#fff">
+          <div id="feedTitle" style="font-size:24px;font-weight:800;letter-spacing:-0.5px">Neon Dash</div>
+          <div id="feedBy" style="font-size:14px;opacity:.75;margin:4px 0 10px">@mika.makes</div>
+          <span class="badge" id="feedModel" style="background:rgba(124,77,255,0.35);border:1px solid rgba(190,170,255,0.6)">Made with Claude Opus 5.5</span>
+        </div>
+        <div class="abs" style="left:236px;top:268px;width:48px;text-align:center;color:#fff">
+          <svg id="heart" width="40" height="40" viewBox="0 0 24 24" style="margin:0 auto"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.1 5.3 3 1.7-1.9 3.2-3 5.3-3 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21z" fill="currentColor"/></svg>
+          <div id="likes" style="font-size:13px;font-weight:700;margin-top:2px">48.2K</div>
+        </div>
+      </div>
+
+      <div class="layer" id="L-board" data-w="460" data-h="340">
+        <div class="abs" style="left:28px;top:24px;width:404px;height:44px;border-radius:22px;background:#EEEAFB"></div>
+        <div class="abs" id="segBlob" style="top:28px;height:36px;border-radius:18px;background:#17112B"></div>
+        <div class="abs seg" data-cx="80" style="left:28px;top:24px;width:104px;line-height:44px;text-align:center;font-size:15px;font-weight:650">All</div>
+        <div class="abs seg" data-cx="210" style="left:150px;top:24px;width:120px;line-height:44px;text-align:center;font-size:15px;font-weight:650">Opus 5.5</div>
+        <div class="abs seg" data-cx="345" style="left:285px;top:24px;width:120px;line-height:44px;text-align:center;font-size:15px;font-weight:650">Sonnet 5</div>
+      </div>
+
+      <div class="layer" id="L-drop" data-w="380" data-h="260">
+        <div class="abs" id="dropZone" style="left:22px;top:22px;right:22px;bottom:22px;border-radius:24px;border:2.5px dashed #b9b2d6;background:#f7f5fd"></div>
+        <div class="abs" id="dropText" style="left:0;right:0;bottom:48px;text-align:center;font-size:17px;font-weight:600;color:#7a7394">Drop <span class="mono">index.html</span></div>
+        <svg class="abs" id="dropArrow" style="left:166px;top:62px;color:#7C4DFF" width="48" height="48" viewBox="0 0 24 24"><path class="stroke" style="stroke-width:2.4" d="M12 4v12m-5-5 5 5 5-5M5 20h14"/></svg>
+      </div>
+
+      <div class="layer" id="L-ring" data-w="220" data-h="220">
+        <svg class="abs" id="ring" style="left:0;top:0" width="220" height="220">
+          <circle cx="110" cy="110" r="84" fill="none" stroke="#EEEAFB" stroke-width="14"/>
+          <circle id="ringFill" cx="110" cy="110" r="84" fill="none" stroke="#7C4DFF" stroke-width="14" stroke-linecap="round" pathLength="1" stroke-dasharray="1" transform="rotate(-90 110 110)"/>
+        </svg>
+        <div class="abs" id="pct" style="left:0;right:0;top:78px;text-align:center;font-size:46px;font-weight:700;letter-spacing:-1.5px;line-height:50px"></div>
+        <div class="abs" id="pctLabel" style="left:0;right:0;top:130px;text-align:center;font-size:14px;color:#7A7590;font-weight:500">uploading</div>
+        <svg class="abs" style="left:66px;top:66px;color:#fff" width="88" height="88" viewBox="0 0 24 24"><path id="checkPath" class="stroke" style="stroke-width:2.4" d="M20 6 9 17l-5-5" pathLength="1" stroke-dasharray="1"/></svg>
+      </div>
+
+      <div class="layer" id="L-github" data-w="460" data-h="110">
+        <svg class="abs" style="left:30px;top:37px;color:#fff" width="36" height="36" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2" class="stroke" style="stroke-width:1.8"/><circle cx="6" cy="19" r="2.2" class="stroke" style="stroke-width:1.8"/><circle cx="18" cy="8" r="2.2" class="stroke" style="stroke-width:1.8"/><path class="stroke" style="stroke-width:1.8" d="M6 7.2v9.6M18 10.2c0 4-6 3-11 6.4"/></svg>
+        <div class="abs" style="left:80px;top:26px;color:#fff;font-size:22px;font-weight:700;white-space:nowrap">you / star-swarm</div>
+        <div class="abs mono" style="left:80px;top:60px;color:rgba(255,255,255,0.5);font-size:14px">main · GitHub</div>
+        <div class="abs" id="ghBtn" style="left:296px;top:25px;width:140px;height:60px;border-radius:30px;background:#fff;text-align:center;line-height:60px;font-size:19px;font-weight:700;white-space:nowrap"></div>
+      </div>
+
+      <div class="layer" id="L-claude" data-w="470" data-h="240">
+        <div class="abs" style="left:22px;top:18px;font-size:14px;font-weight:700;color:#8a8378">Claude</div>
+        <div class="abs" id="userMsg" style="right:20px;top:46px;max-width:360px;padding:12px 16px;border-radius:16px;background:#e6e0d4;font-size:18px;color:#1f1d1a;white-space:nowrap"></div>
+        <div class="abs mono" id="toolChip" style="left:20px;top:112px;padding:9px 13px;border-radius:10px;background:#fff;border:1px solid #ddd5c8;font-size:15px;color:#1f1d1a"></div>
+        <div class="abs" id="reply" style="left:20px;top:166px;right:20px;font-size:18px;line-height:1.4;color:#1f1d1a"></div>
+      </div>
+
+      <div class="layer" id="L-api" data-w="540" data-h="160">
+        <div class="abs mono" id="code1" style="left:28px;top:26px;font-size:21px;color:#fff;white-space:pre"></div>
+        <div class="abs mono" id="code2" style="left:28px;top:64px;font-size:16px;color:rgba(255,255,255,0.55);white-space:pre">-F file=@game.html -F model=claude-opus-5-5</div>
+        <div class="abs mono" id="code3" style="left:28px;top:106px;font-size:18px;color:#C6F432;white-space:pre">201 · live · gm_8f2k</div>
+        <div class="abs" id="runBtn" style="left:420px;top:20px;width:96px;height:42px;border-radius:21px;background:#C6F432;text-align:center;line-height:42px;font-size:16px;font-weight:800">Run ▸</div>
+      </div>
+
+      <div class="layer" id="L-toggle" data-w="400" data-h="112">
+        <div class="abs mono" style="left:26px;top:34px;width:44px;height:44px;border-radius:12px;background:#17112B;color:#C6F432;text-align:center;line-height:44px;font-size:17px;font-weight:800">&lt;/&gt;</div>
+        <div class="abs" style="left:86px;top:26px;font-size:24px;font-weight:750;white-space:nowrap">Open source</div>
+        <div class="abs" id="tglSub" style="left:86px;top:60px;font-size:15px;color:#7A7590;white-space:nowrap"></div>
+        <div class="abs" id="tglTrack" style="left:290px;top:31px;width:86px;height:50px;border-radius:25px"></div>
+        <div class="abs" id="tglKnob" style="left:295px;top:36px;width:40px;height:40px;border-radius:20px;background:#fff;box-shadow:0 2px 6px rgba(23,17,43,0.3)"></div>
+      </div>
+
+      <div class="layer" id="L-tips" data-w="440" data-h="104">
+        <div class="tip abs" id="tipA" style="left:0;top:0;width:440px;height:104px"><div class="ic"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2.8a6.7 6.7 0 0 0-4 12.1V18h8v-3.1A6.7 6.7 0 0 0 12 2.8z" fill="#C6F432"/></svg></div><div class="tt">Creator tip</div><div class="st">Show gameplay in the first 2 seconds</div></div>
+      </div>
+
+      <div class="layer" id="L-team" data-fill="1"></div>
+
+      <div class="layer" id="L-build" data-w="460" data-h="320">
+        <canvas class="abs" id="buildCv" width="428" height="226" style="left:16px;top:16px;border-radius:18px"></canvas>
+        <div class="abs mono" id="liveTag" style="left:30px;top:28px;padding:5px 10px;border-radius:8px;background:rgba(0,0,0,0.55);font-size:12px;color:#C6F432">● live</div>
+        <div class="abs" id="buildMsg" style="left:22px;top:258px;right:22px;font-size:17px;color:#fff;line-height:1.35;white-space:nowrap"></div>
+      </div>
+
+      <div class="layer" id="L-cta" data-w="520" data-h="112">
+        <div class="abs" style="left:0;right:0;top:0;line-height:112px;text-align:center;color:#fff;font-size:30px;font-weight:800;letter-spacing:-0.6px">Upload your first game →</div>
+      </div>
+    </div>
+    <div id="file"><svg width="64" height="64" viewBox="0 0 24 24"><path d="M6 2.5h8l5 5v14H6z" fill="#fff" stroke="#17112B" stroke-width="1.2"/><path d="M14 2.5v5h5" fill="none" stroke="#17112B" stroke-width="1.2"/><path d="m9.5 13-2 2 2 2M14.5 13l2 2-2 2" fill="none" stroke="#7C4DFF" stroke-width="1.4" stroke-linecap="round"/></svg><div class="mono" style="font-size:11px;text-align:center;margin-top:-2px;color:#17112B;font-weight:700">index.html</div></div>
+  </div>
+  <svg id="cursor" viewBox="0 0 34 34"><path d="M4 2.5 L4 26.5 L10.2 20.6 L14.3 30 L18.6 28.1 L14.6 19 L23 19 Z" fill="#17112B" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>
+</div>
+
+<script>
+window.SIZE = [1440, 1440]
+const BRAND = 'Promptcade'
+
+// ---------- time ----------
+const BEATS = 48 // 12 bars of 4/4
+const B = 60 / 125
+const D = () => BEATS * B
+
+// ---------- springs ----------
+function S(t, f, z) {
+  if (t <= 0) return 0
+  const w = 2 * Math.PI * f
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t)
+  const wd = w * Math.sqrt(1 - z * z)
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t))
+}
+function pulse(t, f) { if (t <= 0) return 0; const x = 2 * Math.PI * f * t; return x * Math.exp(1 - x) }
+const SPR = {
+  shape: { f: 1.9, z: 0.82 }, cam: { f: 1.2, z: 0.95 }, enter: { f: 3.6, z: 1 }, exit: { f: 8, z: 1 },
+  cursor: { f: 2.3, z: 1 }, glide: { f: 0.95, z: 1 }, drag: { f: 1.3, z: 1 }, press: { f: 10, z: 1 },
+  lead: { f: 3.4, z: 0.78 }, trail: { f: 1.7, z: 0.92 }, slow: { f: 0.9, z: 1 }, snap: { f: 3, z: 0.7 },
+}
+// value with many retargets = sum of one spring per change; cyclic so frame D equals frame 0
+function track(keys, def = SPR.shape) {
+  const ks = keys.map(([b, v, s]) => [((b % BEATS) + BEATS) % BEATS, v, s || def]).sort((a, c) => a[0] - c[0])
+  const n = ks.length
+  const deltas = ks.map((k, i) => k[1] - ks[(i - 1 + n) % n][1])
+  const base = ks[n - 1][1]
+  return (t) => {
+    let v = base
+    const d = D()
+    for (let c = -3; c <= 0; c++) for (let i = 0; i < n; i++) {
+      if (deltas[i] === 0) continue
+      v += deltas[i] * S(t - ks[i][0] * B - c * d, ks[i][2].f, ks[i][2].z)
+    }
+    return v
+  }
+}
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x))
+const lerp = (a, c, p) => a + (c - a) * p
+const since = (tb, b) => (((tb - b) % BEATS) + BEATS) % BEATS
+const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+function mixColor(a, c, p) { const A = hexToRgb(a), C2 = hexToRgb(c); return `rgb(${A.map((v, i) => Math.round(lerp(v, C2[i], clamp(p)))).join(',')})` }
+
+// ---------- palette ----------
+const INK = '#17112B', WHITE = '#FFFFFF', CREAM = '#F4F1EA', LIME = '#C6F432'
+const C = { pink: '#FF4FA0', violet: '#7C4DFF', cyan: '#1FCFEA', blue: '#2F5BFF', green: '#16C47F', yellow: '#FFD23F', coral: '#FF5A36', orange: '#FF7A1A' }
+
+// ---------- structure (beats) ----------
+// 46 brand · 2 search (click 2, type) · 5 chips (click 6, 6.9) · 8 feed card (like 10, swipe 10.8-11.3)
+// 12 leaderboard (filter 13.5) · 16 drop zone (drag file 16.4-17.2) · 18 upload ring, 20.1 done
+// 21 GitHub import (click 22) · 24 Claude skill chat · 27 API (run 28) · 30 open-source toggle (click 31)
+// 33 creator tips (drop 34, fan 35) · 37 team avatars (+Claude 39.5) · 41 live build · 44 CTA (click 45) -> brand
+const STATES = [
+  { id: 'brand', at: 46, w: 470, h: 124, r: 62, bg: WHITE, cam: 2.2, canvas: C.violet },
+  { id: 'search', at: 2, w: 540, h: 104, r: 52, bg: WHITE, cam: 2.15, canvas: C.pink },
+  { id: 'chips', at: 5, w: 540, h: 170, r: 44, bg: INK, cam: 2.05, canvas: C.cyan },
+  { id: 'feed', at: 8, w: 300, h: 480, r: 40, bg: INK, cam: 1.72, canvas: C.blue },
+  { id: 'board', at: 12, w: 460, h: 340, r: 36, bg: WHITE, cam: 1.9, canvas: C.orange },
+  { id: 'drop', at: 16, w: 380, h: 260, r: 36, bg: WHITE, cam: 2.05, canvas: C.green },
+  { id: 'ring', at: 18, w: 220, h: 220, r: 110, bg: WHITE, cam: 2.75 },
+  { id: 'github', at: 21, w: 460, h: 110, r: 55, bg: INK, cam: 2.25, canvas: C.yellow },
+  { id: 'claude', at: 24, w: 470, h: 240, r: 34, bg: CREAM, cam: 2.0, canvas: C.coral },
+  { id: 'api', at: 27, w: 540, h: 160, r: 30, bg: INK, cam: 1.95, canvas: C.cyan },
+  { id: 'toggle', at: 30, w: 400, h: 112, r: 56, bg: WHITE, cam: 2.35, canvas: C.violet },
+  { id: 'tips', at: 33, w: 440, h: 104, r: 28, bg: WHITE, cam: 2.1, canvas: C.yellow },
+  { id: 'team', at: 37, w: 330, h: 100, r: 50, bg: INK, cam: 2.4, canvas: C.green },
+  { id: 'build', at: 41, w: 460, h: 320, r: 32, bg: INK, cam: 1.9, canvas: C.pink },
+  { id: 'cta', at: 44, w: 520, h: 112, r: 56, bg: C.pink, cam: 2.2, canvas: C.blue },
+]
+const CLICKS = [2, 6, 6.9, 10, 13.5, 22, 28, 31, 39.5, 45]
+const DRAGS = [[10.8, 11.3], [16.4, 17.2]]
+
+const shapeW = track(STATES.map((s) => [s.at, s.w]))
+const shapeH = track(STATES.map((s) => [s.at, s.h]))
+const shapeR = track(STATES.map((s) => [s.at, s.r]))
+const SHAPE_WIPES = [...STATES.map((s) => ({ b: s.at, color: s.bg })), { b: 20.1, color: C.violet }].sort((a, c) => a.b - c.b)
+function latest(list, tb) { let best = 0; for (let i = 0; i < list.length; i++) if (since(tb, list[i].b) < since(tb, list[best].b)) best = i; return best }
+const cam = track([...STATES.map((s) => [s.at, s.cam]), [35, 1.85], [36.2, 2.1]], SPR.cam)
+
+const layerVis = {}
+STATES.forEach((s, i) => { const next = STATES[(i + 1) % STATES.length]; layerVis[s.id] = track([[s.at + 0.14, 1, SPR.enter], [next.at, 0, SPR.exit]]) })
+const pressKeys = (bs) => bs.flatMap((b) => [[b - 0.16, 1, SPR.press], [b + 0.02, 0, SPR.enter]])
+const cursorPress = track([...pressKeys(CLICKS), ...DRAGS.flatMap(([a, z]) => [[a - 0.1, 1, SPR.press], [z, 0, SPR.enter]])])
+const shapePress = track(pressKeys([45]))
+
+// ---------- cursor path (world coords, origin = shape centre) ----------
+const TEAM_GAP = [58, 80]
+const cursorKeys = [
+  [46.4, 160, 100], [1.0, 20, 90, SPR.glide],
+  [1.85, -200, 4], // click the search bar at 2
+  [2.9, 150, 110],
+  [5.7, -48, -34], // Cozy at 6
+  [6.65, -146, 38], // Pixel at 6.9
+  [7.5, 60, 150],
+  [9.75, 110, 50], // heart at 10
+  [10.6, 0, 150], [11.3, 0, -60, SPR.drag], // swipe up
+  [11.9, 170, 120],
+  [13.3, -10, -124], // filter Opus 5.5 at 13.5
+  [14.6, 160, 150],
+  [16.3, -330, -170], [17.15, 0, 0, SPR.drag], // carry index.html into the drop zone
+  [18.3, 150, 150],
+  [21.8, 146, 0], // Import at 22
+  [23.0, 190, 110],
+  [26.5, 210, 140],
+  [27.8, 208, -40], // Run at 28
+  [29.0, 150, 110],
+  [30.8, 136, 0], // toggle at 31
+  [32.0, 170, 90],
+  [34.9, 70, 16], // hover the tip stack, fans it
+  [36.1, 180, 110],
+  [38.3, 20, 10], // hover the avatars, spreads them
+  [39.3, 1.5 * TEAM_GAP[1], 4], // "+" at 39.5
+  [40.6, 190, 150],
+  [44.8, 0, 8], // CTA at 45
+]
+const curX = track(cursorKeys.map(([b, x, , s]) => [b, x, s]), SPR.cursor)
+const curY = track(cursorKeys.map(([b, , y, s]) => [b, y, s]), SPR.cursor)
+
+// ---------- per-state tracks ----------
+const QUERY = 'cozy pixel games'
+const CHIPS = [['Roguelike', -176, -36], ['Cozy', -48, -36], ['Racing', 64, -36], ['Horror', 180, -36], ['Pixel art', -146, 38], ['Puzzle', -18, 38], ['Idle', 82, 38], ['3D', 168, 38]]
+const chipOn = [null, track([[6, 1, SPR.snap], [8, 0, SPR.exit]]), null, null, track([[6.9, 1, SPR.snap], [8, 0, SPR.exit]]), null, null, null]
+const likeSel = track([[10, 1, SPR.snap], [12, 0, SPR.exit]])
+const swipe = track([[10.95, 1, SPR.trail], [12, 0, SPR.exit]])
+const segL = track([[12, 34, SPR.exit], [13.5, 156, SPR.trail]])
+const segR = track([[12, 126, SPR.exit], [13.5, 270, SPR.lead]])
+const reorder = track([[12, 0, SPR.exit], [13.6, 1, SPR.trail]])
+const upP = track([[18.3, 0, SPR.exit], [18.45, 0.46, SPR.slow], [19.3, 0.81, SPR.slow], [20.05, 1, SPR.trail]])
+const ringVis = track([[18.3, 1, SPR.enter], [20.1, 0, SPR.exit]])
+const checkDraw = track([[20.15, 1, { f: 2.6, z: 1 }], [21, 0, SPR.exit]])
+const ghDone = track([[22.15, 1, SPR.snap], [24, 0, SPR.exit]])
+const tgl = track([[31, 1, SPR.snap], [33, 0, SPR.exit]])
+const tipAVis = track([[34, 1, SPR.enter], [37, 0, SPR.exit]])
+const backVis = [track([[34.2, 1, SPR.enter], [36.3, 0, SPR.shape]]), track([[34.35, 1, SPR.enter], [36.3, 0, SPR.shape]])]
+const fan = track([[35, 1, SPR.lead], [36.2, 0, SPR.shape]])
+const TEAM = [['AJ', C.pink, WHITE], ['MK', C.cyan, INK], ['RS', C.orange, WHITE]]
+const avVis = [0, 1, 2, 3].map((i) => track([[37.3 + 0.16 * i, 1, SPR.snap], [41, 0, SPR.exit]]))
+const spread = track([[38.3, 1, SPR.lead], [41, 0, SPR.exit]])
+const claudeJoin = track([[39.55, 1, SPR.snap], [41, 0, SPR.exit]])
+const torch = track([[42.6, 1, SPR.slow], [44, 0, SPR.exit]])
+
+// ---------- canvas flood from the cursor ----------
+const WIPES = STATES.filter((s) => s.canvas).map((s) => ({ b: s.at, color: s.canvas }))
+function wipeState(t) {
+  const tb = t / B
+  const best = latest(WIPES, tb)
+  const prev = (best - 1 + WIPES.length) % WIPES.length
+  const age = since(tb, WIPES[best].b) * B
+  return { prev: WIPES[prev].color, cur: WIPES[best].color, age, t0: t - age }
+}
+
+// ---------- mini games ----------
+function runner(g, w, h, t) {
+  const sky = g.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, '#2a1266'); sky.addColorStop(1, '#ff4fd8')
+  g.fillStyle = sky; g.fillRect(0, 0, w, h)
+  g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(w * 0.7, h * 0.36, w * 0.18, 0, 7); g.fill()
+  for (let layer = 0; layer < 2; layer++) {
+    g.fillStyle = layer ? '#1b0f3d' : '#3b1c7a'; g.beginPath(); g.moveTo(0, h)
+    const off = (t * (layer ? 90 : 40)) % (w * 0.5)
+    for (let x = -w * 0.5; x <= w * 1.5; x += w * 0.25) g.lineTo(x - off, h * (layer ? 0.62 : 0.55) - (Math.sin(x * 0.02 + layer) * 0.5 + 0.5) * h * 0.12)
+    g.lineTo(w * 2, h); g.fill()
+  }
+  const gy = h * 0.74
+  g.fillStyle = '#0d0822'; g.fillRect(0, gy, w, h - gy)
+  g.strokeStyle = LIME; g.lineWidth = 3; g.beginPath(); g.moveTo(0, gy); g.lineTo(w, gy); g.stroke()
+  for (let i = 0; i < 3; i++) { const ox = (1 - ((t * 0.9 + i / 3) % 1)) * w * 1.3 - w * 0.15; g.fillStyle = '#ff4fd8'; g.fillRect(ox, gy - h * 0.06, w * 0.06, h * 0.06) }
+  const ph = (t % 1.1) / 1.1, jump = Math.sin(Math.PI * clamp(ph * 1.6)) * h * 0.17, s = w * 0.09
+  g.save(); g.translate(w * 0.25, gy - s / 2 - jump); g.rotate(ph < 0.62 ? ph * Math.PI : 0)
+  g.fillStyle = LIME; g.fillRect(-s / 2, -s / 2, s, s); g.restore()
+}
+function shooter(g, w, h, t) {
+  g.fillStyle = '#05040c'; g.fillRect(0, 0, w, h)
+  let seed = 7; const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+  for (let i = 0; i < 60; i++) { const x = r() * w, sp = 60 + r() * 220, y = (r() * h + t * sp) % h; g.fillStyle = `rgba(255,255,255,${0.3 + r() * 0.6})`; g.fillRect(x, y, 2, 2 + sp / 60) }
+  for (let row = 0; row < 3; row++) for (let c = 0; c < 4; c++) {
+    if (((c * 7 + row * 3 + Math.floor(t * 2)) % 9) === 0) continue
+    const x = w * 0.2 + c * w * 0.2 + Math.sin(t * 1.6) * w * 0.08, y = h * 0.16 + row * h * 0.07
+    g.fillStyle = ['#ff4fd8', '#7c5cff', '#3de0ff'][row]; g.fillRect(x - w * 0.04, y - w * 0.025, w * 0.08, w * 0.05)
+  }
+  const sx = w / 2 + Math.sin(t * 2.3) * w * 0.3, sy = h * 0.82
+  for (let i = 0; i < 6; i++) { g.fillStyle = LIME; g.fillRect(sx - 2, sy - ((t * 800 + i * 100) % (h * 0.75)), 4, 14) }
+  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(sx, sy - w * 0.07); g.lineTo(sx - w * 0.06, sy + w * 0.035); g.lineTo(sx + w * 0.06, sy + w * 0.035); g.fill()
+}
+function dungeon(g, w, h, t, lit, chasers) {
+  g.fillStyle = '#07050d'; g.fillRect(0, 0, w, h)
+  const cs = w / 12
+  for (let y = 0; y < Math.ceil(h / cs); y++) for (let x = 0; x < 12; x++) {
+    g.fillStyle = mixColor((x + y) % 2 ? '#3b3560' : '#332d55', (x * 3 + y * 5) % 7 === 0 ? '#1d1830' : '#15111f', lit)
+    g.fillRect(x * cs + 1, y * cs + 1, cs - 2, cs - 2)
+  }
+  const hx = w * 0.5 + Math.sin(t * 0.9) * w * 0.28, hy = h * 0.55 + Math.sin(t * 1.3) * h * 0.22
+  for (let i = 0; i < 3; i++) {
+    const k = chasers * (0.7 + 0.1 * i)
+    const ex = lerp(w * (0.12 + i * 0.38), hx + Math.cos(i * 2.1 + t) * 50, clamp(k)), ey = lerp(h * 0.2, hy + Math.sin(i * 2.1 + t) * 40, clamp(k))
+    g.fillStyle = '#ff3355'; g.beginPath(); g.arc(ex, ey, cs * 0.3 * clamp(chasers * 3), 0, 7); g.fill()
+  }
+  g.fillStyle = '#3de0ff'; g.fillRect(hx - cs * 0.26, hy - cs * 0.26, cs * 0.52, cs * 0.52)
+  if (lit > 0.01) {
+    const light = g.createRadialGradient(hx, hy, cs * 0.6, hx, hy, w * 0.42)
+    light.addColorStop(0, 'rgba(0,0,0,0)'); light.addColorStop(1, `rgba(0,0,0,${(0.92 * lit).toFixed(3)})`)
+    g.fillStyle = light; g.fillRect(0, 0, w, h)
+    g.fillStyle = `rgba(255,180,90,${(0.15 * lit).toFixed(3)})`; g.beginPath(); g.arc(hx, hy, cs * (1.7 + 0.12 * Math.sin(t * 13)), 0, 7); g.fill()
+  }
+}
+
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id)
+const els = { world: $('world'), shape: $('shape'), cursor: $('cursor'), stage: $('stage'), wipe: $('wipe') }
+const layers = STATES.map((s) => ({ s, el: $('L-' + s.id) }))
+$('brandName').textContent = BRAND
+const chipEls = CHIPS.map(([n, x, y]) => { const d = document.createElement('div'); d.className = 'chip'; d.textContent = n; d.style.left = 270 + x + 'px'; d.style.top = 85 + y + 'px'; $('L-chips').appendChild(d); return d })
+const BOARD = [['Sunset Drift', 'Fable 5.1', 1.84, 'linear-gradient(135deg,#ff6b9d,#ffd36b)'], ['Neon Dash', 'Opus 5.5', 1.52, 'linear-gradient(135deg,#2a1266,#ff4fd8)'], ['Lantern Keep', 'Opus 5.5', 1.21, 'linear-gradient(135deg,#15111f,#3de0ff)']]
+const rowEls = BOARD.map(([title, model, plays, grad], i) => {
+  const r = document.createElement('div'); r.className = 'abs'
+  Object.assign(r.style, { left: '22px', right: '22px', height: '72px', borderRadius: '18px', background: '#F7F5FD', border: '2px solid transparent', boxSizing: 'border-box' })
+  r.innerHTML = `<div class="abs rank" style="left:16px;top:20px;font-size:22px;font-weight:800;color:#a39dbb">${i + 1}</div>
+    <div class="abs" style="left:48px;top:12px;width:44px;height:44px;border-radius:12px;background:${grad}"></div>
+    <div class="abs" style="left:106px;top:12px;font-size:18px;font-weight:750;white-space:nowrap">${title}</div>
+    <span class="abs badge" style="left:106px;top:38px;background:#EEEAFB;color:#5b3fd6">${'Claude ' + model}</span>
+    <div class="abs mono" style="right:16px;top:22px;font-size:17px;font-weight:700">${plays.toFixed(2)}M</div>`
+  $('L-board').appendChild(r)
+  return { r, model, rank: r.querySelector('.rank'), i }
+})
+const segLabels = [...document.querySelectorAll('.seg')]
+const avEls = [...TEAM, ['+', 'transparent', WHITE]].map(([txt, bg, fg], i) => {
+  const d = document.createElement('div'); d.className = 'abs'
+  Object.assign(d.style, { width: '64px', height: '64px', borderRadius: '32px', background: bg, color: fg, boxSizing: 'border-box', border: i === 3 ? '3px dashed rgba(255,255,255,0.5)' : `4px solid ${INK}`, textAlign: 'center', lineHeight: i === 3 ? '58px' : '56px', fontSize: i === 3 ? '30px' : '19px', fontWeight: 700, top: '18px' })
+  d.textContent = txt
+  $('L-team').appendChild(d)
+  return d
+})
+const claudeAv = document.createElement('div'); claudeAv.className = 'abs'
+Object.assign(claudeAv.style, { width: '64px', height: '64px', borderRadius: '32px', background: 'linear-gradient(135deg,#FF4FA0,#7C4DFF)', border: `4px solid ${LIME}`, boxSizing: 'border-box', top: '18px', display: 'grid', placeItems: 'center' })
+claudeAv.innerHTML = '<div style="width:18px;height:18px;border-radius:4px;background:#fff;transform:rotate(45deg)"></div>'
+$('L-team').appendChild(claudeAv)
+const feedA = $('feedA').getContext('2d'), feedB = $('feedB').getContext('2d'), buildG = $('buildCv').getContext('2d')
+
+function visStyle(el, vis, blurMax = 10) {
+  el.style.opacity = clamp(vis).toFixed(4)
+  const b = (1 - clamp(vis)) * blurMax
+  el.style.filter = b > 0.05 ? `blur(${b.toFixed(2)}px)` : 'none'
+  el.style.visibility = vis < 0.002 ? 'hidden' : 'visible'
+}
+const typed = (text, tb, start, perBeat) => text.slice(0, clamp(Math.floor((tb - start) * perBeat), 0, text.length))
+
+// ---------- seek ----------
+function seek(tIn) {
+  const d = D()
+  const t = ((tIn % d) + d) % d
+  const tb = t / B
+  const c = cam(t)
+  const fn = clamp(fan(t), -0.1, 1.1)
+  const panY = -112 * fn
+  els.world.style.transform = `scale(${c.toFixed(5)}) translateY(${panY.toFixed(3)}px)`
+
+  // canvas flood from the cursor
+  const wp = wipeState(t)
+  els.stage.style.background = wp.prev
+  const ox = 720 + curX(wp.t0) * cam(wp.t0), oy = 720 + (curY(wp.t0) - 112 * fan(wp.t0)) * cam(wp.t0)
+  const rad = 2200 * S(wp.age, 1.25, 1)
+  Object.assign(els.wipe.style, { left: ox - rad + 'px', top: oy - rad + 'px', width: 2 * rad + 'px', height: 2 * rad + 'px', background: wp.cur })
+  const ph = (t / d) * Math.PI * 2, ds = 0.85 + 0.07 * c
+  $('decoRing').style.transform = `translate(${-300 + 40 * Math.sin(ph)}px, ${-280 + 30 * Math.cos(ph)}px) scale(${ds})`
+  $('decoSquare').style.transform = `translate(${1060 + 30 * Math.cos(ph)}px, ${1040 + 40 * Math.sin(ph)}px) rotate(${(t / d) * 90 + 12}deg) scale(${ds})`
+  $('decoDot').style.transform = `translate(${1180 + 26 * Math.sin(ph * 2)}px, ${190 + 20 * Math.cos(ph)}px) scale(${ds})`
+
+  // shape
+  const sprd = clamp(spread(t), -0.1, 1.2)
+  const w = shapeW(t) + 70 * sprd, h = shapeH(t)
+  const r = Math.min(shapeR(t), h / 2, w / 2)
+  Object.assign(els.shape.style, { width: w + 'px', height: h + 'px', left: -w / 2 + 'px', top: -h / 2 + 'px', borderRadius: r + 'px',
+    transform: `scale(${1 - 0.05 * shapePress(t)})`, boxShadow: '0 1px 2px rgba(23,17,43,0.14), 0 26px 50px -18px rgba(23,17,43,0.45)' })
+  const si = latest(SHAPE_WIPES, tb)
+  const sAge = since(tb, SHAPE_WIPES[si].b) * B, sT0 = t - sAge
+  const lx = clamp(curX(sT0) + w / 2, 0, w), ly = clamp(curY(sT0) + h / 2, 0, h)
+  const sRad = Math.hypot(w, h) * S(sAge, 1.7, 1)
+  els.shape.style.background = SHAPE_WIPES[(si - 1 + SHAPE_WIPES.length) % SHAPE_WIPES.length].color
+  Object.assign($('shapeWipe').style, { left: lx - sRad + 'px', top: ly - sRad + 'px', width: 2 * sRad + 'px', height: 2 * sRad + 'px', background: SHAPE_WIPES[si].color })
+
+  for (const { s, el } of layers) {
+    const vis = layerVis[s.id](t)
+    visStyle(el, vis)
+    if (vis < 0.002) continue
+    const lw = el.dataset.fill ? w : +el.dataset.w, lh = el.dataset.fill ? h : +el.dataset.h
+    Object.assign(el.style, { width: lw + 'px', height: lh + 'px', left: (w - lw) / 2 + 'px', top: (h - lh) / 2 + 'px', transform: `scale(${lerp(0.96, 1, clamp(vis))})` })
+  }
+
+  // brand: letters settle in after the morph
+  const bl = clamp(layerVis.brand(t))
+  $('logo').style.transform = `rotate(${(-12 * (1 - bl)).toFixed(2)}deg) scale(${(0.8 + 0.2 * bl).toFixed(4)})`
+
+  // search: typing
+  const q = typed(QUERY, tb, 2.3, 12)
+  $('query').innerHTML = q ? q + (Math.floor(tb * 4) % 2 || q.length < QUERY.length ? '<span style="display:inline-block;width:3px;height:34px;background:#7C4DFF;vertical-align:-5px;margin-left:2px"></span>' : '') : '<span style="color:#b3adc8">Search games</span>'
+
+  // chips
+  chipEls.forEach((el, i) => {
+    const on = chipOn[i] ? clamp(chipOn[i](t), 0, 1.25) : 0
+    el.style.background = mixColor('#2b2350', LIME, clamp(on))
+    el.style.color = mixColor('#ffffff', INK, clamp(on))
+    el.style.transform = `translate(-50%,-50%) scale(${(1 + 0.12 * pulse(since(tb, i === 1 ? 6 : 6.9) * B, 4) * (chipOn[i] ? 1 : 0)).toFixed(4)})`
+  })
+
+  // feed card
+  if (layerVis.feed(t) > 0.002) {
+    const sw = clamp(swipe(t), -0.1, 1.1)
+    runner(feedA, 300, 480, t); shooter(feedB, 300, 480, t)
+    $('feedA').style.transform = `translateY(${(-sw * 480).toFixed(2)}px)`
+    $('feedB').style.transform = `translateY(${((1 - sw) * 480).toFixed(2)}px)`
+    const second = sw > 0.5
+    $('feedTitle').textContent = second ? 'Star Swarm' : 'Neon Dash'
+    $('feedBy').textContent = second ? '@devkai' : '@mika.makes'
+    $('feedModel').textContent = second ? 'Made with Claude Sonnet 5' : 'Made with Claude Opus 5.5'
+    $('feedInfo').style.opacity = (1 - Math.sin(Math.PI * clamp(sw)) * 0.9).toFixed(3)
+    const lk = clamp(likeSel(t), 0, 1.2)
+    $('heart').style.color = second ? '#fff' : mixColor('#ffffff', C.pink, clamp(lk))
+    $('heart').style.transform = `scale(${(1 + 0.45 * pulse(since(tb, 10) * B, 3.4) * (tb < 12 ? 1 : 0)).toFixed(4)})`
+    $('likes').textContent = second ? '31.9K' : lk > 0.5 ? '48.3K' : '48.2K'
+  }
+
+  // leaderboard filter
+  const L = segL(t), R = segR(t)
+  Object.assign($('segBlob').style, { left: L + 'px', width: Math.max(0, R - L) + 'px' })
+  segLabels.forEach((lab) => { const cx = +lab.dataset.cx; lab.style.color = cx > L && cx < R ? '#fff' : '#6f6887' })
+  const ro = clamp(reorder(t), -0.1, 1.1)
+  const orderAfter = [2, 0, 1] // Sunset Drift drops to 3rd, the Opus games rise
+  rowEls.forEach((row) => {
+    const y = lerp(88 + row.i * 80, 88 + orderAfter[row.i] * 80, ro)
+    row.r.style.top = y + 'px'
+    const opus = row.model.includes('Opus')
+    row.r.style.opacity = lerp(1, opus ? 1 : 0.4, clamp(ro)).toFixed(3)
+    row.r.style.borderColor = opus ? `rgba(124,77,255,${(0.7 * clamp(ro)).toFixed(3)})` : 'transparent'
+    row.rank.textContent = ro > 0.5 ? (opus ? orderAfter[row.i] + 1 : '–') : row.i + 1
+  })
+
+  // drop zone: the file rides the cursor, then lands
+  const carrying = since(tb, 16.25) < 1.0
+  const landed = since(tb, 17.2) < 0.9
+  const fileEl = $('file')
+  fileEl.style.visibility = carrying || landed ? 'visible' : 'hidden'
+  if (carrying) fileEl.style.transform = `translate(${(curX(t) - 18).toFixed(2)}px, ${(curY(t) - 6).toFixed(2)}px) rotate(-8deg)`
+  if (landed) { const k = S(since(tb, 17.2) * B, 3, 0.6); fileEl.style.transform = `translate(${(-32).toFixed(2)}px, ${(-40 - 10 * (1 - k)).toFixed(2)}px) scale(${(1 - 0.6 * clamp((since(tb, 17.2) - 0.55) / 0.35)).toFixed(3)})`; fileEl.style.opacity = (1 - clamp((since(tb, 17.2) - 0.55) / 0.35)).toFixed(3) } else fileEl.style.opacity = 1
+  const over = carrying && since(tb, 16.25) > 0.6 ? 1 : 0
+  $('dropZone').style.borderColor = over || landed ? '#7C4DFF' : '#b9b2d6'
+  $('dropZone').style.background = over || landed ? '#efe9ff' : '#f7f5fd'
+  $('dropText').innerHTML = landed ? 'Uploading…' : 'Drop <span class="mono">index.html</span>'
+  $('dropArrow').style.transform = `translateY(${(Math.sin(t * 6) * 5).toFixed(2)}px)`
+  $('dropArrow').style.opacity = landed ? 0 : 1
+
+  // upload ring
+  const p = clamp(upP(t)), rv = clamp(ringVis(t))
+  $('ringFill').style.strokeDashoffset = (1 - p).toFixed(4)
+  for (const id of ['ring', 'pct', 'pctLabel']) visStyle($(id), rv, 8)
+  $('pct').textContent = Math.round(p * 100) + '%'
+  $('pctLabel').textContent = p > 0.995 ? 'done' : 'uploading'
+  $('checkPath').style.strokeDashoffset = (1 - clamp(checkDraw(t))).toFixed(4)
+
+  // GitHub
+  const gd = clamp(ghDone(t), 0, 1.2)
+  const gb = $('ghBtn')
+  gb.style.background = mixColor(WHITE, LIME, clamp(gd))
+  gb.style.transform = `scale(${(1 + 0.08 * (gd > 1 ? gd - 1 : 0) * 5 - 0.06 * cursorPress(t) * (since(tb, 21) < 3 ? 1 : 0)).toFixed(4)})`
+  gb.textContent = gd > 0.5 ? 'Synced ✓' : since(tb, 21.95) < 0.2 ? 'Importing…' : 'Import'
+
+  // Claude skill chat
+  const MSG = `publish this to ${BRAND}`
+  const um = typed(MSG, tb, 24.3, 20)
+  $('userMsg').textContent = um || ' '
+  visStyle($('userMsg'), since(tb, 24.2) < 2.8 ? clamp(since(tb, 24.2) * 6) : 0, 6)
+  $('toolChip').textContent = `⚙ ${BRAND.toLowerCase()} · publish_game`
+  const tc = since(tb, 25.6) < 1.4 ? S(since(tb, 25.6) * B, 3, 0.6) : 0
+  visStyle($('toolChip'), tc, 6)
+  $('toolChip').style.transform = `scale(${lerp(0.7, 1, clamp(tc, 0, 1.1)).toFixed(3)})`
+  $('reply').innerHTML = since(tb, 26.1) < 0.9 ? typed(`Live on ${BRAND}. Star Swarm is ready to play.`, tb, 26.1, 60).replace('Star Swarm', '<b>Star Swarm</b>') : ''
+
+  // API
+  const L1 = 'POST /v1/games'
+  const c1 = typed(L1, tb, 27.25, 24)
+  $('code1').innerHTML = c1.replace('POST', '<span style="color:#FF7AD9">POST</span>')
+  visStyle($('code2'), clamp((tb - 27.8) * 4) * (since(tb, 27) < 3 ? 1 : 0), 4)
+  const res = since(tb, 28.3) < 1.7 ? S(since(tb, 28.3) * B, 3, 0.7) : 0
+  visStyle($('code3'), res, 6)
+  $('runBtn').style.transform = `scale(${(1 - 0.08 * pulse(since(tb, 27.9) * B, 6)).toFixed(4)})`
+
+  // open-source toggle
+  const k = clamp(tgl(t), -0.1, 1.15)
+  $('tglTrack').style.background = mixColor('#dcd7ea', LIME, clamp(k))
+  $('tglKnob').style.transform = `translateX(${(k * 36).toFixed(2)}px)`
+  $('tglSub').textContent = k > 0.5 ? 'Anyone can learn from it and fork it' : 'Only you can see the code'
+
+  // creator tips (stack fans out when hovered)
+  const aVis = clamp(tipAVis(t))
+  visStyle($('tipA'), aVis, 8)
+  $('tipA').style.transform = `translateY(${(-(1 - aVis) * 26).toFixed(2)}px)`
+  const bmp = pulse(since(tb, 34) * B, 5) * (since(tb, 34) < 2 ? 1 : 0)
+  ;[$('back1'), $('back2')].forEach((el, i) => {
+    const v = clamp(backVis[i](t), -0.05, 1.1), kk = i + 1
+    const sc = lerp(1 - 0.06 * kk, 1, clamp(fn)) - 0.02 * bmp
+    const y = lerp(13.5 * kk, 112 * kk, fn) + 8 * kk * bmp
+    el.style.transform = `translateY(${(y * v - 52).toFixed(2)}px) scale(${sc.toFixed(4)})`
+    el.style.opacity = clamp(v)
+    el.style.visibility = v < 0.002 ? 'hidden' : 'visible'
+    el.style.background = mixColor('#FFF4C7', WHITE, clamp(fn))
+    el.firstElementChild.style.opacity = clamp(fn * 1.4 - 0.2)
+    el.style.boxShadow = `0 18px 40px -20px rgba(23,17,43,${(0.4 * v).toFixed(3)})`
+  })
+
+  // team: avatars pop in, spread on hover, "+" becomes Claude
+  const gap = lerp(TEAM_GAP[0], TEAM_GAP[1], sprd)
+  const cj = clamp(claudeJoin(t), 0, 1.25)
+  avEls.forEach((el, i) => {
+    const v = clamp(avVis[i](t), 0, 1.3)
+    const x = w / 2 + (i - 1.5) * gap - 32
+    visStyle(el, Math.min(1, v) * (i === 3 ? 1 - clamp(cj * 2) : 1), 6)
+    Object.assign(el.style, { left: x + 'px', transform: `scale(${lerp(0.4, 1, v)})` })
+  })
+  const cx4 = w / 2 + 1.5 * gap - 32
+  visStyle(claudeAv, clamp(cj), 6)
+  Object.assign(claudeAv.style, { left: cx4 + 'px', transform: `scale(${lerp(0.3, 1, cj).toFixed(4)}) rotate(${((1 - clamp(cj)) * -90).toFixed(1)}deg)` })
+
+  // live build: the game changes as Claude answers
+  if (layerVis.build(t) > 0.002) {
+    const lit = clamp(torch(t)), ch = clamp((since(tb, 43) < 1.5 ? since(tb, 43) : 0) * 0.9)
+    dungeon(buildG, 428, 226, t, lit, ch)
+    $('buildMsg').innerHTML = '<span style="color:#C6F432;font-weight:800">Claude</span> ' + typed('added torch lighting and 3 chasers', tb, 41.6, 30)
+    $('liveTag').style.opacity = (0.6 + 0.4 * Math.sin(t * 6)).toFixed(3)
+  }
+
+  // cursor (screen space)
+  const cx = curX(t), cy = curY(t) + panY
+  els.cursor.style.transform = `translate(${(720 + cx * c - 6).toFixed(2)}px, ${(720 + cy * c - 4).toFixed(2)}px) scale(${1 - 0.14 * clamp(cursorPress(t))})`
+}
+
+// ---------- sound cues for scripts/mix_audio.py ----------
+function timeline() {
+  const list = [
+    ...CLICKS.map((b) => ({ b, kind: 'click' })),
+    ...STATES.map((s) => ({ b: s.at, kind: 'swish' })),
+    ...[...QUERY].map((_, i) => ({ b: 2.3 + i / 12, kind: 'key' })),
+    ...[...`publish this to ${BRAND}`].filter((_, i) => i % 2 === 0).map((_, i) => ({ b: 24.3 + (i * 2) / 20, kind: 'key' })),
+    ...[...'POST /v1/games'].map((_, i) => ({ b: 27.25 + i / 24, kind: 'key' })),
+    { b: 6, kind: 'pop' }, { b: 6.9, kind: 'pop' }, { b: 10, kind: 'pop' },
+    { b: 10.8, kind: 'press' }, { b: 11.3, kind: 'release' }, { b: 10.95, kind: 'swipe' },
+    { b: 13.6, kind: 'shuffle' }, { b: 16.4, kind: 'press' }, { b: 17.2, kind: 'drop' },
+    ...[0.25, 0.5, 0.75].map((f) => ({ b: 18.45 + f * 1.6, kind: 'tick' })), { b: 20.15, kind: 'success' },
+    { b: 22.15, kind: 'success' }, { b: 25.6, kind: 'pop' }, { b: 26.1, kind: 'success' },
+    { b: 28.3, kind: 'success' }, { b: 31, kind: 'toggle' },
+    { b: 34, kind: 'pop' }, { b: 35, kind: 'swipe' },
+    ...[0, 1, 2, 3].map((i) => ({ b: 37.3 + 0.16 * i + 0.1, kind: 'tick' })), { b: 39.55, kind: 'pop' }, { b: 39.7, kind: 'success' },
+    { b: 42.6, kind: 'swell' }, { b: 45, kind: 'impact' },
+  ]
+  return { duration: D(), bpm: 125, beat: B, beats: BEATS, cues: list.map((c) => ({ ...c, t: (((c.b % BEATS) + BEATS) % BEATS) * B })).sort((a, c) => a.t - c.t) }
+}
+
+window.seek = seek
+window.timeline = timeline
+window.configure = () => {}
+
+if (!window.__RENDER__) {
+  document.body.classList.add('preview')
+  const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth, innerHeight) / 1440)
+  fit(); addEventListener('resize', fit)
+  const params = new URLSearchParams(location.search)
+  document.fonts.ready.then(() => {
+    if (params.has('t')) seek(+params.get('t'))
+    else { const t0 = performance.now(); const loop = () => { seek((performance.now() - t0) / 1000); requestAnimationFrame(loop) }; loop() }
+  })
+}
+</script>
+</body>
+</html>

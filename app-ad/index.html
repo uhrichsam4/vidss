@@ -1,0 +1,825 @@
+<!doctype html>
+<!--
+  Launch ad for an AI-game hosting app. 32s, 1920x1080, cut on a 120 BPM grid.
+  Every pixel is a pure function of time: seek(t). No CSS transitions, no timers, no state between frames.
+  Open in a browser to preview (?t=12.3 freezes a moment); scripts/render.mjs drives seek(t) for export.
+  Change the app name in BRAND below.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>app ad</title>
+<style>
+  @font-face { font-family: 'Inter'; src: url(assets/fonts/inter.woff2) format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'JetBrains Mono'; src: url(assets/fonts/jetbrains-mono.woff2) format('woff2'); font-weight: 100 800; font-display: block; }
+  :root { --v: #7c5cff; --p: #ff4fd8; --l: #c6ff3d; --c: #3de0ff; --bg: #07060d; --card: #121022; --line: rgba(255,255,255,0.09); }
+  html, body { margin: 0; background: #000; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview #stage { transform: scale(var(--fit, 0.5)); transform-origin: center; flex: none; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: #fff;
+    font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: 'tnum' 1; }
+  .abs { position: absolute; }
+  .scene { position: absolute; inset: 0; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .kicker { font-family: 'JetBrains Mono', monospace; font-size: 15px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--l); }
+  .h1 { font-size: 92px; font-weight: 800; letter-spacing: -3.5px; line-height: 0.98; }
+  .sub { font-size: 26px; line-height: 1.4; color: rgba(255,255,255,0.62); font-weight: 450; }
+  .word { display: inline-block; white-space: pre; }
+  .mask { overflow: hidden; padding-bottom: 0.08em; }
+  .grad { background: linear-gradient(92deg, var(--v), var(--p) 55%, #ffb36b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card { background: linear-gradient(180deg, rgba(30,26,54,0.92), rgba(16,14,30,0.94)); border: 1px solid var(--line); border-radius: 26px;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06); }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; font-size: 19px; font-weight: 600;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--line); white-space: nowrap; }
+  .badge { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; font-size: 14px; font-weight: 650;
+    background: rgba(124,92,255,0.18); border: 1px solid rgba(124,92,255,0.45); color: #d9d0ff; white-space: nowrap; }
+  .spark { width: 12px; height: 12px; border-radius: 3px; background: linear-gradient(135deg, var(--p), var(--v)); transform: rotate(45deg); display: inline-block; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+  .phone { position: absolute; border-radius: 58px; background: #0b0a14; border: 10px solid #1d1a2e; overflow: hidden;
+    box-shadow: 0 60px 140px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08), 0 0 120px rgba(124,92,255,0.18); }
+  .notch { position: absolute; left: 50%; top: 14px; width: 120px; height: 32px; margin-left: -60px; border-radius: 20px; background: #000; z-index: 5; }
+  .code { font-family: 'JetBrains Mono', monospace; font-size: 23px; line-height: 1.7; white-space: pre; }
+  .tk-k { color: #ff7ad9; } .tk-s { color: #c6ff3d; } .tk-v { color: #7fdcff; } .tk-c { color: rgba(255,255,255,0.35); }
+  canvas { display: block; }
+  #vignette { inset: 0; background: radial-gradient(ellipse 78% 72% at 50% 50%, transparent 55%, rgba(0,0,0,0.7) 100%); pointer-events: none; }
+  #grain { inset: 0; opacity: 0.06; mix-blend-mode: screen; pointer-events: none; }
+  #flash { inset: 0; background: #fff; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bg" class="abs" width="1920" height="1080"></canvas>
+  <div id="scenes"></div>
+  <div class="abs" id="vignette"></div>
+  <svg class="abs" id="grain" width="1920" height="1080"><filter id="noise"><feTurbulence id="turb" type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="0"/></filter><rect width="100%" height="100%" filter="url(#noise)"/></svg>
+  <div class="abs" id="flash"></div>
+</div>
+
+<script>
+// ---------- brand ----------
+const BRAND = 'Promptcade'
+const TAGLINE = 'The home for AI-made games.'
+
+// ---------- time ----------
+const W = 1920, H = 1080
+const BPM = 120, B = 60 / BPM
+const DUR = 64 * B // 32s
+const b = (n) => n * B
+
+// ---------- math ----------
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x))
+const lerp = (a, c, p) => a + (c - a) * p
+const smooth = (a, c, x) => { const t = clamp((x - a) / (c - a)); return t * t * (3 - 2 * t) }
+const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3)
+const easeOutExpo = (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * clamp(t)))
+const easeInOut = (t) => { t = clamp(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+function S(t, f, z) { // damped spring step response 0 -> 1
+  if (t <= 0) return 0
+  const w = 2 * Math.PI * f
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t)
+  const wd = w * Math.sqrt(1 - z * z)
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t))
+}
+const pop = (t, f = 3.2) => S(t, f, 0.55) // overshooting entrance
+const pulse = (t, f) => { if (t <= 0) return 0; const x = 2 * Math.PI * f * t; return x * Math.exp(1 - x) }
+function rng(seed) { return () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 } }
+
+// ---------- DOM helpers ----------
+const $ = (id) => document.getElementById(id)
+function el(tag, cls, style, parent, html) {
+  const e = document.createElement(tag)
+  if (cls) e.className = cls
+  if (style) Object.assign(e.style, style)
+  if (html != null) e.innerHTML = html
+  if (parent) parent.appendChild(e)
+  return e
+}
+function show(e, v, blur = 0, dy = 0, scale = 1) {
+  v = clamp(v)
+  e.style.opacity = v.toFixed(4)
+  e.style.visibility = v < 0.002 ? 'hidden' : 'visible'
+  const bl = (1 - v) * blur
+  e.style.filter = bl > 0.05 ? `blur(${bl.toFixed(2)}px)` : 'none'
+  const tf = []
+  if (dy) tf.push(`translateY(${((1 - v) * dy).toFixed(2)}px)`)
+  if (scale !== 1) tf.push(`scale(${lerp(scale, 1, v).toFixed(4)})`)
+  e.style.transform = tf.join(' ')
+}
+const px = (n) => n.toFixed(2) + 'px'
+
+// kinetic headline: words rise out of masks, staggered
+function headline(parent, x, y, w, kicker, title, sub, align = 'left') {
+  const root = el('div', 'abs', { left: x + 'px', top: y + 'px', width: w + 'px', textAlign: align }, parent)
+  const k = el('div', 'kicker', { marginBottom: '22px' }, root, kicker)
+  const h = el('div', 'h1', {}, root)
+  const words = []
+  title.split(/(?<=\s)/).forEach((wd) => {
+    const m = el('span', 'mask', { display: 'inline-block', verticalAlign: 'top' }, h)
+    const grad = wd.startsWith('*')
+    words.push(el('span', 'word' + (grad ? ' grad' : ''), {}, m, wd.replace(/\*/g, '')))
+  })
+  const s = sub ? el('div', 'sub', { marginTop: '26px', maxWidth: w - 20 + 'px', display: align === 'center' ? 'inline-block' : 'block' }, root, sub) : null
+  return (lt) => {
+    show(k, smooth(0, 0.35, lt), 6, 10)
+    words.forEach((wd, i) => {
+      const p = easeOutExpo((lt - 0.08 - i * 0.07) / 0.6)
+      wd.style.transform = `translateY(${((1 - p) * 105).toFixed(2)}%)`
+      wd.style.filter = p < 0.99 ? `blur(${((1 - p) * 8).toFixed(2)}px)` : 'none'
+    })
+    if (s) show(s, smooth(0.35, 0.9, lt), 8, 16)
+  }
+}
+
+// ---------- mini games: procedural "gameplay" drawn as a function of time ----------
+const GAMES = {
+  runner(g, w, h, t) {
+    const sky = g.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, '#2a1266'); sky.addColorStop(1, '#ff4fd8')
+    g.fillStyle = sky; g.fillRect(0, 0, w, h)
+    g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(w * 0.72, h * 0.42, w * 0.16, 0, 7); g.fill()
+    for (let layer = 0; layer < 2; layer++) {
+      g.fillStyle = layer ? '#1b0f3d' : '#3b1c7a'
+      g.beginPath(); g.moveTo(0, h)
+      const sp = layer ? 90 : 40, off = (t * sp) % (w * 0.5)
+      for (let x = -w * 0.5; x <= w * 1.5; x += w * 0.25) g.lineTo(x - off, h * (layer ? 0.66 : 0.58) - (Math.sin(x * 0.02 + layer) * 0.5 + 0.5) * h * 0.14)
+      g.lineTo(w * 2, h); g.fill()
+    }
+    const gy = h * 0.78
+    g.fillStyle = '#0d0822'; g.fillRect(0, gy, w, h - gy)
+    g.strokeStyle = '#c6ff3d'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, gy); g.lineTo(w, gy); g.stroke()
+    const period = 1.1, ph = (t % period) / period
+    for (let i = 0; i < 3; i++) { const ox = ((1 - ((t * 0.9 + i / 3) % 1)) * w * 1.3) - w * 0.15; g.fillStyle = '#ff4fd8'; g.fillRect(ox, gy - h * 0.07, w * 0.05, h * 0.07) }
+    const jump = Math.sin(Math.PI * clamp(ph * 1.6)) * h * 0.2
+    const s = w * 0.085
+    g.save(); g.translate(w * 0.25, gy - s / 2 - jump); g.rotate(ph * Math.PI * (ph < 0.62 ? 1 : 0))
+    g.fillStyle = '#c6ff3d'; g.shadowColor = '#c6ff3d'; g.shadowBlur = 20; g.fillRect(-s / 2, -s / 2, s, s); g.restore()
+  },
+  shooter(g, w, h, t) {
+    g.fillStyle = '#05040c'; g.fillRect(0, 0, w, h)
+    const r = rng(7)
+    for (let i = 0; i < 70; i++) { const x = r() * w, sp = 60 + r() * 220, y = (r() * h + t * sp) % h; g.fillStyle = `rgba(255,255,255,${0.3 + r() * 0.6})`; g.fillRect(x, y, 2, 2 + sp / 60) }
+    for (let row = 0; row < 3; row++) for (let c = 0; c < 5; c++) {
+      const x = w * 0.18 + c * w * 0.16 + Math.sin(t * 1.6) * w * 0.08, y = h * 0.14 + row * h * 0.08
+      const alive = ((c * 7 + row * 3 + Math.floor(t * 2)) % 9) !== 0
+      if (!alive) continue
+      g.fillStyle = ['#ff4fd8', '#7c5cff', '#3de0ff'][row]; g.fillRect(x - w * 0.035, y - w * 0.02, w * 0.07, w * 0.04)
+    }
+    const sx = w / 2 + Math.sin(t * 2.3) * w * 0.3, sy = h * 0.84
+    for (let i = 0; i < 6; i++) { const by = sy - ((t * 900 + i * 110) % (h * 0.8)); g.fillStyle = '#c6ff3d'; g.fillRect(sx - 2, by, 4, 16) }
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(sx, sy - w * 0.06); g.lineTo(sx - w * 0.05, sy + w * 0.03); g.lineTo(sx + w * 0.05, sy + w * 0.03); g.fill()
+    g.fillStyle = '#ff9d3d'; g.beginPath(); g.moveTo(sx - w * 0.02, sy + w * 0.03); g.lineTo(sx, sy + w * (0.06 + 0.02 * Math.sin(t * 40))); g.lineTo(sx + w * 0.02, sy + w * 0.03); g.fill()
+  },
+  blocks(g, w, h, t) {
+    g.fillStyle = '#0b0a1a'; g.fillRect(0, 0, w, h)
+    const cols = 8, cs = w / cols, rows = Math.ceil(h / cs)
+    const cl = ['#7c5cff', '#ff4fd8', '#c6ff3d', '#3de0ff', '#ffb36b']
+    const r = rng(3)
+    for (let y = rows - 4; y < rows; y++) for (let x = 0; x < cols; x++) if (r() > 0.25) { g.fillStyle = cl[Math.floor(r() * 5)]; g.fillRect(x * cs + 2, y * cs + 2, cs - 4, cs - 4) }
+    const fall = (t * 3.2) % (rows - 4)
+    const shape = [[0, 0], [1, 0], [2, 0], [1, 1]]
+    const fx = 2 + Math.floor((t * 0.7) % 4)
+    g.fillStyle = cl[Math.floor(t / 1.25) % 5]; g.shadowColor = g.fillStyle; g.shadowBlur = 16
+    for (const [dx, dy] of shape) g.fillRect((fx + dx) * cs + 2, (Math.floor(fall) + dy) * cs + 2, cs - 4, cs - 4)
+    g.shadowBlur = 0
+    g.strokeStyle = 'rgba(255,255,255,0.05)'
+    for (let x = 0; x <= cols; x++) { g.beginPath(); g.moveTo(x * cs, 0); g.lineTo(x * cs, h); g.stroke() }
+  },
+  racer(g, w, h, t) {
+    const sky = g.createLinearGradient(0, 0, 0, h * 0.5); sky.addColorStop(0, '#120a33'); sky.addColorStop(1, '#ff6b9d')
+    g.fillStyle = sky; g.fillRect(0, 0, w, h * 0.5)
+    g.fillStyle = '#ffd36b'; g.beginPath(); g.arc(w / 2, h * 0.5, w * 0.2, Math.PI, 0); g.fill()
+    g.fillStyle = '#12082b'; g.fillRect(0, h * 0.5, w, h * 0.5)
+    const hy = h * 0.5, curve = Math.sin(t * 0.8) * w * 0.15
+    for (let i = 0; i < 26; i++) {
+      const z = ((i / 26 + t * 1.3) % 1), zz = z * z
+      const y = hy + zz * h * 0.5, half = w * (0.04 + zz * 0.55), cx = w / 2 + curve * (1 - z)
+      g.strokeStyle = i % 2 ? '#7c5cff' : '#3de0ff'; g.lineWidth = 1 + zz * 3
+      g.beginPath(); g.moveTo(cx - half, y); g.lineTo(cx + half, y); g.stroke()
+    }
+    g.strokeStyle = '#ff4fd8'; g.lineWidth = 3
+    g.beginPath(); g.moveTo(w / 2 + curve, hy); g.lineTo(w * 0.02, h); g.moveTo(w / 2 + curve, hy); g.lineTo(w * 0.98, h); g.stroke()
+    const cx = w / 2 + Math.sin(t * 1.9) * w * 0.18
+    g.fillStyle = '#c6ff3d'; g.shadowColor = '#c6ff3d'; g.shadowBlur = 24
+    g.fillRect(cx - w * 0.08, h * 0.82, w * 0.16, h * 0.07); g.shadowBlur = 0
+    g.fillStyle = '#ff3355'; g.fillRect(cx - w * 0.07, h * 0.87, w * 0.035, h * 0.015); g.fillRect(cx + w * 0.035, h * 0.87, w * 0.035, h * 0.015)
+  },
+  farm(g, w, h, t) {
+    g.fillStyle = '#2d6a3e'; g.fillRect(0, 0, w, h)
+    const cs = w / 6
+    for (let y = 0; y < Math.ceil(h / cs); y++) for (let x = 0; x < 6; x++) {
+      g.fillStyle = (x + y) % 2 ? '#3a8a4f' : '#347c47'; g.fillRect(x * cs, y * cs, cs, cs)
+      if (y > 1 && y < 6 && x > 0 && x < 5) {
+        g.fillStyle = '#6b4a2b'; g.fillRect(x * cs + 6, y * cs + 6, cs - 12, cs - 12)
+        const grow = clamp(((t * 0.6 + x * 0.17 + y * 0.29) % 1.4))
+        g.fillStyle = grow > 0.8 ? '#ffb36b' : '#8dff6b'
+        g.beginPath(); g.arc(x * cs + cs / 2, y * cs + cs / 2, Math.max(0, (cs / 2 - Math.min(10, cs * 0.2)) * grow), 0, 7); g.fill()
+      }
+    }
+    const px_ = w * 0.5 + Math.sin(t * 1.1) * w * 0.3, py = h * 0.8 + Math.cos(t * 0.9) * h * 0.05
+    g.fillStyle = '#fff4e0'; g.fillRect(px_ - cs * 0.25, py - cs * 0.5, cs * 0.5, cs * 0.6)
+    g.fillStyle = '#ff4fd8'; g.fillRect(px_ - cs * 0.28, py - cs * 0.62, cs * 0.56, cs * 0.16)
+  },
+  dungeon(g, w, h, t) {
+    g.fillStyle = '#07050d'; g.fillRect(0, 0, w, h)
+    const cs = w / 7
+    for (let y = 0; y < Math.ceil(h / cs); y++) for (let x = 0; x < 7; x++) { g.fillStyle = (x * 3 + y * 5) % 7 === 0 ? '#1d1830' : '#15111f'; g.fillRect(x * cs + 1, y * cs + 1, cs - 2, cs - 2) }
+    const hx = w * 0.5 + Math.sin(t * 0.9) * w * 0.25, hy = h * 0.55 + Math.sin(t * 1.3) * h * 0.2
+    for (let i = 0; i < 3; i++) { const ex = w * (0.2 + i * 0.3), ey = h * (0.25 + 0.2 * Math.sin(t + i)); g.fillStyle = '#ff3355'; g.beginPath(); g.arc(ex, ey, cs * 0.25, 0, 7); g.fill() }
+    g.fillStyle = '#3de0ff'; g.fillRect(hx - cs * 0.22, hy - cs * 0.22, cs * 0.44, cs * 0.44)
+    const light = g.createRadialGradient(hx, hy, cs * 0.3, hx, hy, w * 0.55)
+    light.addColorStop(0, 'rgba(0,0,0,0)'); light.addColorStop(1, 'rgba(0,0,0,0.92)')
+    g.fillStyle = light; g.fillRect(0, 0, w, h)
+    g.fillStyle = 'rgba(255,180,90,0.12)'; g.beginPath(); g.arc(hx, hy, cs * (1.2 + 0.1 * Math.sin(t * 13)), 0, 7); g.fill()
+  },
+}
+function gameCanvas(parent, kind, w, h, style = {}) {
+  const c = el('canvas', '', Object.assign({ width: w + 'px', height: h + 'px' }, style), parent)
+  c.width = w; c.height = h
+  const g = c.getContext('2d')
+  return (t) => GAMES[kind](g, w, h, t)
+}
+const ICON = {
+  play: '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>',
+  heart: '<svg width="34" height="34" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.1 5.3 3 1.7-1.9 3.2-3 5.3-3 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21z" fill="currentColor"/></svg>',
+  search: '<svg width="30" height="30" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2.4" fill="none"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  file: '<svg width="64" height="64" viewBox="0 0 24 24"><path d="M6 2.5h8l5 5v14H6z" fill="#1d1934" stroke="#c6ff3d" stroke-width="1.3"/><path d="M14 2.5v5h5" fill="none" stroke="#c6ff3d" stroke-width="1.3"/><path d="m9.5 13-2 2 2 2M14.5 13l2 2-2 2" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  branch: '<svg width="30" height="30" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="6" cy="19" r="2.2" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="18" cy="8" r="2.2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M6 7.2v9.6M18 10.2c0 4-6 3-11 6.4" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>',
+  check: '<svg width="26" height="26" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7.5" stroke="currentColor" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  star: '<svg width="18" height="18" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" fill="currentColor"/></svg>',
+  lock: '<svg width="26" height="26" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg>',
+  bulb: '<svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2.8a6.7 6.7 0 0 0-4 12.1V18h8v-3.1A6.7 6.7 0 0 0 12 2.8z" fill="#c6ff3d"/><rect x="8.5" y="19.2" width="7" height="2.2" rx="1.1" fill="#c6ff3d"/></svg>',
+  cursor: '<svg width="30" height="30" viewBox="0 0 34 34"><path d="M4 2.5 L4 26.5 L10.2 20.6 L14.3 30 L18.6 28.1 L14.6 19 L23 19 Z" fill="currentColor" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>',
+}
+function logoMark(size) {
+  return `<div style="width:${size}px;height:${size}px;border-radius:${size * 0.28}px;background:linear-gradient(135deg,#ff4fd8,#7c5cff 60%,#3de0ff);display:grid;place-items:center;box-shadow:0 0 ${size * 0.6}px rgba(124,92,255,0.55),inset 0 ${size * 0.04}px 0 rgba(255,255,255,0.35)">
+    <svg width="${size * 0.5}" height="${size * 0.5}" viewBox="0 0 24 24"><path d="M8 4.8v14.4L19.5 12z" fill="#fff"/><circle cx="4.6" cy="7" r="1.6" fill="#c6ff3d"/><circle cx="4.6" cy="17" r="1.6" fill="#c6ff3d"/></svg></div>`
+}
+
+// ---------- scenes ----------
+const root = $('scenes')
+const scenes = []
+function scene(name, b0, b1, build, enter = 'zoom') {
+  const div = el('div', 'scene', {}, root)
+  const update = build(div)
+  scenes.push({ name, t0: b(b0), t1: b(b1), div, update, enter })
+}
+const CUES = [] // sound cues collected while building: {t, kind}
+const cue = (t, kind, extra = {}) => CUES.push({ t, kind, ...extra })
+
+// 1 ─ hook
+scene('hook', 0, 4, (d) => {
+  const l1 = el('div', 'abs', { left: 0, right: 0, top: '380px', textAlign: 'center', fontSize: '76px', fontWeight: 800, letterSpacing: '-2.5px' }, d,
+    'Thousands of games are<br/>being made with <span class="grad">AI</span>.')
+  const l2 = el('div', 'abs', { left: 0, right: 0, top: '440px', textAlign: 'center', fontSize: '120px', fontWeight: 850, letterSpacing: '-4px' }, d, 'Where do they go?')
+  cue(0.05, 'swell'); cue(b(2), 'hit_soft'); cue(b(3), 'riser')
+  return (lt) => {
+    const a = smooth(0.1, 0.7, lt) * (1 - smooth(b(1.8), b(2), lt))
+    show(l1, a, 14, 30, 0.94)
+    const c = smooth(b(2), b(2) + 0.35, lt)
+    show(l2, c, 18, 0, 1.25)
+    l2.style.letterSpacing = px(-4 + (1 - c) * 20)
+    l2.style.transform += ` scale(${(1 + smooth(b(3), b(4), lt) * 0.35).toFixed(4)})`
+  }
+})
+
+// 2 ─ logo
+scene('logo', 4, 8, (d) => {
+  const wrap = el('div', 'abs', { left: 0, right: 0, top: '330px', textAlign: 'center' }, d)
+  const mark = el('div', '', { display: 'inline-block' }, wrap, logoMark(170))
+  const word = el('div', '', { fontSize: '128px', fontWeight: 850, letterSpacing: '-5px', marginTop: '26px' }, wrap)
+  const letters = [...BRAND].map((ch) => el('span', 'word', {}, word, ch))
+  const tag = el('div', 'sub', { fontSize: '34px', marginTop: '6px', color: 'rgba(255,255,255,0.7)' }, wrap, TAGLINE)
+  const ring = el('div', 'abs', { left: '960px', top: '415px', width: '10px', height: '10px', borderRadius: '50%', border: '3px solid rgba(198,255,61,0.9)' }, d)
+  const parts = [...Array(40)].map((_, i) => ({ e: el('div', 'abs', { width: '8px', height: '8px', borderRadius: '2px', background: ['#c6ff3d', '#ff4fd8', '#7c5cff', '#3de0ff'][i % 4] }, d), a: (i / 40) * Math.PI * 2 + (i % 3) * 0.2, sp: 380 + (i * 97) % 420 }))
+  cue(b(4), 'impact')
+  return (lt) => {
+    const m = pop(lt, 2.4)
+    mark.style.transform = `scale(${m.toFixed(4)}) rotate(${((1 - m) * -30).toFixed(2)}deg)`
+    letters.forEach((l, i) => {
+      const p = pop(lt - 0.25 - i * 0.035, 3)
+      l.style.transform = `translateY(${((1 - p) * 60).toFixed(2)}px)`
+      l.style.opacity = clamp(p * 1.5).toFixed(3)
+      l.style.filter = p < 0.98 ? `blur(${((1 - clamp(p)) * 10).toFixed(2)}px)` : 'none'
+    })
+    show(tag, smooth(0.8, 1.3, lt), 10, 16)
+    const r = easeOutExpo(lt / 1.1)
+    ring.style.transform = `translate(-50%,-50%) scale(${(1 + r * 110).toFixed(2)})`
+    ring.style.opacity = (1 - r).toFixed(3)
+    ring.style.borderWidth = px(3 / (1 + r * 40))
+    for (const p of parts) {
+      const q = easeOutExpo(lt / 1.4), dist = q * p.sp
+      p.e.style.transform = `translate(${px(960 + Math.cos(p.a) * dist)}, ${px(415 + Math.sin(p.a) * dist)}) rotate(${(lt * 300 + p.sp).toFixed(1)}deg)`
+      p.e.style.opacity = (1 - smooth(0.3, 1.4, lt)).toFixed(3)
+    }
+  }
+}, 'flash')
+
+// 3 ─ For You feed
+const FEED = [
+  { kind: 'runner', title: 'Neon Dash', by: '@mika.makes', model: 'Claude Opus 5.5', likes: 48200 },
+  { kind: 'shooter', title: 'Star Swarm', by: '@devkai', model: 'Claude Sonnet 5', likes: 31900 },
+  { kind: 'racer', title: 'Sunset Drift', by: '@lumen', model: 'Claude Fable 5.1', likes: 87400 },
+  { kind: 'farm', title: 'Cozy Acres', by: '@pixelwitch', model: 'Claude Haiku 4.5', likes: 22500 },
+]
+function feedCard(parent, g, w, h) {
+  const c = el('div', 'abs', { left: 0, top: 0, width: w + 'px', height: h + 'px', overflow: 'hidden' }, parent)
+  const draw = gameCanvas(c, g.kind, w, h)
+  el('div', 'abs', { inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 22%, transparent 55%, rgba(0,0,0,0.8) 100%)' }, c)
+  const info = el('div', 'abs', { left: '26px', bottom: '40px', right: '100px' }, c)
+  el('div', '', { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.6px' }, info, g.title)
+  el('div', '', { fontSize: '18px', color: 'rgba(255,255,255,0.75)', margin: '6px 0 14px' }, info, g.by)
+  el('div', 'badge', {}, info, `<span class="spark"></span>Made with ${g.model}`)
+  const playBtn = el('div', 'btn', { position: 'absolute', left: '26px', top: '76px', padding: '12px 20px', fontSize: '18px', background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.25)', backdropFilter: 'blur(8px)' }, c, ICON.play + 'Play now')
+  const side = el('div', 'abs', { right: '20px', bottom: '140px', textAlign: 'center', width: '70px' }, c)
+  const heart = el('div', '', { color: '#fff' }, side, ICON.heart)
+  const likes = el('div', '', { fontSize: '16px', fontWeight: 700, marginTop: '2px' }, side, (g.likes / 1000).toFixed(1) + 'K')
+  return { c, draw, heart, likes, playBtn, g }
+}
+scene('feed', 8, 17, (d) => {
+  const text = headline(d, 150, 330, 760, '01 · For you', 'A feed made of *games.', 'Swipe through gameplay clips. Tap once and you’re playing, right in the browser.')
+  const PW = 430, PH = 880
+  const phone = el('div', 'phone', { left: '1200px', top: '100px', width: PW + 'px', height: PH + 'px' }, d)
+  el('div', 'notch', {}, phone)
+  const inner = el('div', 'abs', { left: 0, top: 0, width: PW - 20 + 'px', height: PH - 20 + 'px', overflow: 'hidden', borderRadius: '48px' }, phone)
+  const cards = FEED.map((g) => feedCard(inner, g, PW - 20, PH - 20))
+  const tabs = el('div', 'abs', { left: 0, right: 0, top: '58px', textAlign: 'center', fontSize: '19px', fontWeight: 700, zIndex: 4 }, inner,
+    '<span style="opacity:.55;margin-right:22px">Following</span><span style="border-bottom:3px solid #fff;padding-bottom:6px">For You</span>')
+  const burst = el('div', 'abs', { color: '#ff4fd8', zIndex: 6 }, inner, ICON.heart.replace(/34/g, '140'))
+  const SWIPES = [b(2.6), b(4.6), b(6.6)]
+  SWIPES.forEach((s) => cue(b(8) + s, 'swipe'))
+  const LIKE = b(1.6)
+  cue(b(8) + LIKE, 'pop')
+  return (lt) => {
+    text(lt)
+    const enter = pop(lt, 1.6)
+    phone.style.transform = `translateY(${((1 - enter) * 500).toFixed(2)}px) rotate(${((1 - enter) * 8 - 2 + Math.sin(lt * 0.9) * 0.6).toFixed(3)}deg)`
+    const scroll = SWIPES.reduce((acc, s) => acc + S(lt - s, 2.1, 0.86), 0)
+    const ch = PH - 20
+    cards.forEach((cd, i) => {
+      const y = (i - scroll) * ch
+      cd.c.style.transform = `translateY(${y.toFixed(2)}px)`
+      const vis = y > -ch && y < ch
+      cd.c.style.visibility = vis ? 'visible' : 'hidden'
+      if (vis) cd.draw(lt + i * 3)
+    })
+    // double-tap like on the first card
+    const lk = lt - LIKE
+    const bp = lk > 0 ? pop(lk, 3.4) : 0
+    burst.style.left = px((PW - 20) / 2 - 70); burst.style.top = px((PH - 20) / 2 - 90)
+    burst.style.transform = `scale(${(bp * (1 - smooth(0.5, 0.9, lk) * 0.3)).toFixed(4)}) translateY(${(-smooth(0.4, 0.9, lk) * 60).toFixed(1)}px)`
+    burst.style.opacity = (lk > 0 ? 1 - smooth(0.55, 0.9, lk) : 0).toFixed(3)
+    cards[0].heart.style.color = lk > 0 ? '#ff4fd8' : '#fff'
+    cards[0].heart.style.transform = `scale(${(1 + 0.4 * pulse(lk, 4)).toFixed(3)})`
+    cards[0].likes.textContent = ((FEED[0].likes + (lk > 0 ? 1 : 0)) / 1000).toFixed(1) + 'K'
+    cards.forEach((cd, i) => { cd.playBtn.style.transform = `scale(${(1 + 0.06 * Math.sin(lt * 5 + i)).toFixed(3)})` })
+  }
+})
+
+// 4 ─ search & niches
+const NICHES = ['Roguelike', 'Cozy', 'Racing', 'Horror', 'Pixel art', 'Puzzle', 'Multiplayer', 'Idle', 'Platformer', 'Shooter', 'Rhythm', '3D']
+scene('search', 17, 23, (d) => {
+  const text = headline(d, 150, 360, 700, '02 · Discover', 'Every *niche. One search.', 'Browse by genre, style or vibe and find your next favorite in seconds.')
+  const bar = el('div', 'card', { position: 'absolute', left: '930px', top: '150px', width: '840px', height: '96px', borderRadius: '48px', display: 'flex', alignItems: 'center', gap: '18px', padding: '0 34px', boxSizing: 'border-box', fontSize: '32px', fontWeight: 550 }, d, `<span style="color:rgba(255,255,255,0.5)">${ICON.search}</span>`)
+  const typed = el('span', '', {}, bar)
+  const caret = el('span', '', { width: '3px', height: '38px', background: '#c6ff3d', display: 'inline-block' }, bar)
+  const QUERY = 'cozy pixel games'
+  const chipsWrap = el('div', 'abs', { left: '930px', top: '280px', width: '860px' }, d)
+  const chips = NICHES.map((n, i) => el('div', 'chip', { margin: '0 12px 14px 0', display: 'inline-flex' }, chipsWrap, n))
+  const grid = el('div', 'abs', { left: '930px', top: '440px', width: '860px' }, d)
+  const kinds = ['farm', 'blocks', 'dungeon', 'runner', 'farm', 'blocks']
+  const titles = ['Cozy Acres', 'Block Garden', 'Lantern Keep', 'Pixel Pals', 'Tiny Harvest', 'Stack Café']
+  const tiles = kinds.map((k, i) => {
+    const t = el('div', 'card', { position: 'absolute', left: (i % 3) * 290 + 'px', top: Math.floor(i / 3) * 290 + 'px', width: '270px', height: '270px', overflow: 'hidden', borderRadius: '22px' }, grid)
+    const draw = gameCanvas(t, k, 270, 200)
+    el('div', '', { padding: '14px 16px', fontSize: '20px', fontWeight: 700 }, t, titles[i])
+    return { t, draw }
+  })
+  for (let i = 0; i < QUERY.length; i++) cue(b(17) + 0.35 + i * 0.055, 'key')
+  cue(b(17) + b(3.2), 'click')
+  return (lt) => {
+    text(lt)
+    show(bar, pop(lt, 2.2), 10, 40)
+    const n = clamp(Math.floor((lt - 0.35) / 0.055), 0, QUERY.length)
+    typed.textContent = QUERY.slice(0, n)
+    caret.style.opacity = Math.floor(lt * 3) % 2 && n === QUERY.length ? 0 : 1
+    const sel = lt > b(3.2)
+    chips.forEach((c, i) => {
+      const p = pop(lt - 0.3 - i * 0.05, 2.6)
+      c.style.transform = `translateY(${((1 - p) * 40).toFixed(1)}px) scale(${clamp(p, 0, 1.2).toFixed(3)})`
+      c.style.opacity = clamp(p * 2).toFixed(3)
+      const on = sel && (i === 1 || i === 4)
+      c.style.background = on ? '#c6ff3d' : 'rgba(255,255,255,0.06)'
+      c.style.color = on ? '#0b0a14' : '#fff'
+    })
+    tiles.forEach((tl, i) => {
+      const p = pop(lt - 1.1 - i * 0.08, 2.2)
+      tl.t.style.transform = `translateY(${((1 - p) * 80).toFixed(1)}px) scale(${lerp(0.85, 1, clamp(p, 0, 1.1)).toFixed(3)})`
+      tl.t.style.opacity = clamp(p * 1.6).toFixed(3)
+      if (p > 0.01) tl.draw(lt + i)
+    })
+  }
+})
+
+// 5 ─ upload three ways
+scene('upload', 23, 32, (d) => {
+  const text = headline(d, 0, 110, 1920, '03 · Upload', 'Ship it *your way.', null, 'center')
+  const cols = [
+    { x: 150, label: 'Drop an HTML file', note: 'Single file or a zip. Plays instantly.' },
+    { x: 700, label: 'Connect GitHub', note: 'Import a repo. Every push redeploys.' },
+    { x: 1250, label: 'Publish from Claude', note: 'One command with the Claude skill.' },
+  ].map((c, i) => {
+    const card = el('div', 'card', { position: 'absolute', left: c.x + 'px', top: '330px', width: '520px', height: '560px', overflow: 'hidden' }, d)
+    el('div', 'kicker', { position: 'absolute', left: '34px', top: '30px', color: 'rgba(255,255,255,0.45)' }, card, '0' + (i + 1))
+    el('div', '', { position: 'absolute', left: '34px', bottom: '84px', fontSize: '34px', fontWeight: 800, letterSpacing: '-0.8px' }, card, c.label)
+    el('div', '', { position: 'absolute', left: '34px', bottom: '44px', fontSize: '19px', color: 'rgba(255,255,255,0.55)' }, card, c.note)
+    return card
+  })
+  // 1: HTML drop zone
+  const zone = el('div', 'abs', { left: '34px', top: '80px', width: '452px', height: '270px', borderRadius: '20px', border: '2px dashed rgba(198,255,61,0.45)', background: 'rgba(198,255,61,0.04)' }, cols[0])
+  const zoneTxt = el('div', 'abs mono', { left: 0, right: 0, bottom: '26px', textAlign: 'center', fontSize: '17px', color: 'rgba(255,255,255,0.5)' }, zone, 'drop index.html here')
+  const file = el('div', 'abs', { left: '190px', top: '60px', textAlign: 'center' }, zone, ICON.file + '<div class="mono" style="font-size:15px;margin-top:6px">index.html</div>')
+  const prog = el('div', 'abs', { left: '40px', right: '40px', bottom: '70px', height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }, zone)
+  const progFill = el('div', '', { height: '100%', width: '0%', background: 'linear-gradient(90deg,#c6ff3d,#3de0ff)' }, prog)
+  // 2: GitHub repo
+  const repo = el('div', 'abs', { left: '34px', top: '80px', width: '452px', height: '270px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }, cols[1])
+  el('div', 'abs', { left: '28px', top: '28px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '24px', fontWeight: 700 }, repo, ICON.branch + 'you / star-swarm')
+  el('div', 'abs mono', { left: '28px', top: '82px', fontSize: '16px', color: 'rgba(255,255,255,0.5)' }, repo, 'main · index.html · assets/')
+  el('div', 'abs', { left: '28px', top: '120px', display: 'flex', gap: '8px', alignItems: 'center', fontSize: '16px', color: '#ffd36b' }, repo, ICON.star + '<span style="color:rgba(255,255,255,0.7)">128</span>')
+  const importBtn = el('div', 'btn', { position: 'absolute', left: '28px', bottom: '28px', width: '396px', height: '64px', fontSize: '22px', background: '#fff', color: '#0b0a14' }, repo, 'Import repository')
+  // 3: Claude skill chat
+  const chat = el('div', 'abs', { left: '34px', top: '80px', width: '452px', height: '270px', borderRadius: '20px', background: '#f4f1ea', color: '#1f1d1a', overflow: 'hidden' }, cols[2])
+  el('div', 'abs', { left: '20px', top: '14px', fontSize: '15px', fontWeight: 700, color: '#8a8378' }, chat, 'Claude')
+  const userMsg = el('div', 'abs', { right: '18px', top: '44px', maxWidth: '330px', padding: '12px 16px', borderRadius: '16px', background: '#e6e0d4', fontSize: '18px' }, chat)
+  const tool = el('div', 'abs mono', { left: '18px', top: '120px', padding: '9px 13px', borderRadius: '10px', background: '#fff', border: '1px solid #ddd5c8', fontSize: '15px' }, chat, `⚙ ${BRAND.toLowerCase()} · publish_game`)
+  const reply = el('div', 'abs', { left: '18px', top: '172px', right: '18px', fontSize: '18px', lineHeight: 1.4 }, chat, `Done. <b>Star Swarm</b> is live on ${BRAND}.`)
+  const MSG = `publish this game to ${BRAND}`
+  const checks = cols.map((c) => el('div', 'abs', { right: '30px', top: '26px', width: '44px', height: '44px', borderRadius: '50%', background: '#c6ff3d', color: '#0b0a14', display: 'grid', placeItems: 'center' }, c, ICON.check))
+  const T0 = b(23)
+  cue(T0 + 0.9, 'drop'); cue(T0 + 1.9, 'success')
+  cue(T0 + 2.6, 'click'); cue(T0 + 3.3, 'success')
+  for (let i = 0; i < MSG.length; i += 2) cue(T0 + 3.4 + i * 0.03, 'key')
+  cue(T0 + 4.5, 'pop'); cue(T0 + 5.1, 'success')
+  return (lt) => {
+    text(lt)
+    cols.forEach((c, i) => {
+      const p = pop(lt - 0.25 - i * 0.12, 1.9)
+      c.style.transform = `translateY(${((1 - p) * 120).toFixed(1)}px) rotate(${((1 - clamp(p)) * (i - 1) * 4).toFixed(2)}deg)`
+      c.style.opacity = clamp(p * 1.5).toFixed(3)
+    })
+    // file falls in and uploads
+    const f = S(lt - 0.5, 2.2, 0.62)
+    file.style.transform = `translateY(${((1 - f) * -260).toFixed(1)}px) rotate(${((1 - clamp(f)) * -25).toFixed(1)}deg)`
+    file.style.opacity = smooth(0.45, 0.6, lt).toFixed(3)
+    progFill.style.width = (easeInOut((lt - 0.95) / 0.9) * 100).toFixed(1) + '%'
+    zoneTxt.textContent = lt > 1.9 ? 'uploaded · live' : 'drop index.html here'
+    zone.style.borderColor = lt > 1.9 ? 'rgba(198,255,61,0.9)' : 'rgba(198,255,61,0.45)'
+    // import click
+    const press = pulse(lt - 2.55, 7)
+    importBtn.style.transform = `scale(${(1 - 0.06 * press).toFixed(3)})`
+    importBtn.textContent = lt > 3.3 ? 'Synced · deploys on push' : lt > 2.6 ? 'Importing…' : 'Import repository'
+    importBtn.style.background = lt > 3.3 ? '#c6ff3d' : '#fff'
+    // claude chat
+    const n = clamp(Math.floor((lt - 3.4) / 0.03), 0, MSG.length)
+    userMsg.textContent = MSG.slice(0, n) || ' '
+    show(userMsg, smooth(3.3, 3.45, lt), 4, 10)
+    show(tool, pop(lt - 4.5, 3), 4, 10)
+    show(reply, smooth(5.0, 5.4, lt), 6, 10)
+    ;[1.9, 3.3, 5.1].forEach((tc, i) => { const p = pop(lt - tc, 3.4); checks[i].style.transform = `scale(${clamp(p, 0, 1.3).toFixed(3)})`; checks[i].style.opacity = p > 0.01 ? 1 : 0 })
+  }
+}, 'slide')
+
+// 6 ─ API
+scene('api', 32, 36, (d) => {
+  const text = headline(d, 150, 360, 640, '04 · Developers', 'A real *API.', 'Publish, update and pull stats from your own tools and pipelines.')
+  const win = el('div', 'card', { position: 'absolute', left: '860px', top: '220px', width: '930px', height: '640px', overflow: 'hidden' }, d)
+  el('div', 'abs', { left: '26px', top: '22px', display: 'flex', gap: '9px' }, win, '<i style="width:13px;height:13px;border-radius:7px;background:#ff5f57;display:block"></i><i style="width:13px;height:13px;border-radius:7px;background:#febc2e;display:block"></i><i style="width:13px;height:13px;border-radius:7px;background:#28c840;display:block"></i>')
+  el('div', 'abs mono', { left: 0, right: 0, top: '18px', textAlign: 'center', fontSize: '15px', color: 'rgba(255,255,255,0.4)' }, win, 'terminal')
+  const code = el('div', 'abs code', { left: '40px', top: '80px' }, win)
+  const LINES = [
+    ['<span class="tk-k">curl</span> -X POST <span class="tk-v">$API</span>/v1/games \\', 34],
+    ['  -H <span class="tk-s">"Authorization: Bearer $KEY"</span> \\', 36],
+    ['  -F <span class="tk-s">file=@game.html</span> \\', 24],
+    ['  -F <span class="tk-s">model="claude-opus-5-5"</span> \\', 32],
+    ['  -F <span class="tk-s">open_source=true</span>', 22],
+    ['', 0],
+    ['<span class="tk-c">// 201 Created</span>', 0],
+    ['{ <span class="tk-v">"id"</span>: <span class="tk-s">"gm_8f2k"</span>, <span class="tk-v">"status"</span>: <span class="tk-s">"live"</span>,', 0],
+    ['  <span class="tk-v">"model"</span>: <span class="tk-s">"Claude Opus 5.5"</span>, <span class="tk-v">"plays"</span>: 0 }', 0],
+  ]
+  const rows = LINES.map(([h]) => el('div', '', { minHeight: '39px' }, code, h))
+  const plain = LINES.map(([h]) => h.replace(/<[^>]+>/g, ''))
+  let tcur = 0.4
+  const starts = LINES.map(([, n], i) => { const s = tcur; tcur += i < 5 ? plain[i].length * 0.012 : i === 6 ? 0.25 : 0.06; return s })
+  starts.forEach((s, i) => { if (i < 5) cue(b(32) + s, 'typeburst', { dur: plain[i].length * 0.012 }) })
+  cue(b(32) + starts[6], 'success')
+  return (lt) => {
+    text(lt)
+    const p = pop(lt, 1.8)
+    win.style.transform = `perspective(1600px) rotateY(${((1 - p) * -18 - 4).toFixed(2)}deg) translateX(${((1 - p) * 200).toFixed(1)}px)`
+    win.style.opacity = clamp(p * 1.4).toFixed(3)
+    rows.forEach((r, i) => {
+      if (i < 5) {
+        const n = clamp(Math.floor((lt - starts[i]) / 0.012), 0, plain[i].length)
+        // reveal the highlighted HTML progressively by clipping
+        r.style.clipPath = `inset(0 ${(100 - (n / Math.max(1, plain[i].length)) * 100).toFixed(1)}% 0 0)`
+      } else show(r, smooth(starts[i], starts[i] + 0.15, lt), 4, 8)
+    })
+  }
+})
+
+// 7 ─ leaderboard + model tags
+const BOARD = [
+  ['Sunset Drift', '@lumen', 'Claude Fable 5.1', 'racer', 1.84],
+  ['Neon Dash', '@mika.makes', 'Claude Opus 5.5', 'runner', 1.52],
+  ['Lantern Keep', '@hollow', 'Claude Opus 5.5', 'dungeon', 1.21],
+  ['Star Swarm', '@devkai', 'Claude Sonnet 5', 'shooter', 0.98],
+  ['Cozy Acres', '@pixelwitch', 'Claude Haiku 4.5', 'farm', 0.77],
+  ['Block Garden', '@tetra', 'Claude Sonnet 5', 'blocks', 0.64],
+]
+const FILTERS = ['All models', 'Opus 5.5', 'Sonnet 5', 'Fable 5.1', 'Haiku 4.5']
+scene('board', 36, 43, (d) => {
+  const text = headline(d, 150, 330, 640, '05 · Leaderboard', 'See what each *model can build.', 'Every game is tagged with the model that made it. Filter the charts by model.')
+  const card = el('div', 'card', { position: 'absolute', left: '860px', top: '130px', width: '930px', height: '820px', overflow: 'hidden' }, d)
+  el('div', 'abs', { left: '40px', top: '34px', fontSize: '32px', fontWeight: 800, letterSpacing: '-0.6px' }, card, 'Top games this week')
+  const fwrap = el('div', 'abs', { left: '40px', top: '96px', display: 'flex', gap: '10px' }, card)
+  const fchips = FILTERS.map((f) => el('div', 'chip', { fontSize: '17px', padding: '9px 16px' }, fwrap, f))
+  const rows = BOARD.map(([title, by, model, kind, plays], i) => {
+    const r = el('div', 'abs', { left: '28px', right: '28px', top: '0px', height: '96px', borderRadius: '18px', display: 'flex', alignItems: 'center', gap: '20px', padding: '0 20px', boxSizing: 'border-box', background: 'rgba(255,255,255,0.035)', border: '1px solid transparent' }, card)
+    const rank = el('div', '', { width: '44px', fontSize: '30px', fontWeight: 800, color: 'rgba(255,255,255,0.4)' }, r, i + 1)
+    const th = el('div', '', { width: '104px', height: '66px', borderRadius: '12px', overflow: 'hidden', flex: 'none' }, r)
+    const draw = gameCanvas(th, kind, 104, 66)
+    const info = el('div', '', { flex: 1 }, r, `<div style="font-size:24px;font-weight:750">${title}</div><div style="font-size:16px;color:rgba(255,255,255,0.5);margin-top:4px">${by}</div>`)
+    el('div', 'badge', {}, r, `<span class="spark"></span>${model}`)
+    const pl = el('div', 'mono', { width: '130px', textAlign: 'right', fontSize: '22px', fontWeight: 700 }, r)
+    return { r, rank, draw, plays, model, i, pl }
+  })
+  const CLICK = b(3.4)
+  cue(b(36) + CLICK, 'click'); cue(b(36) + CLICK + 0.1, 'shuffle')
+  return (lt) => {
+    text(lt)
+    const p = pop(lt, 1.8)
+    card.style.transform = `translateY(${((1 - p) * 140).toFixed(1)}px)`
+    card.style.opacity = clamp(p * 1.5).toFixed(3)
+    const f = lt > CLICK ? 1 : 0
+    fchips.forEach((c, i) => {
+      const on = i === f
+      c.style.background = on ? '#fff' : 'rgba(255,255,255,0.06)'
+      c.style.color = on ? '#0b0a14' : '#fff'
+      c.style.transform = `scale(${(1 - (i === 1 ? 0.08 * pulse(lt - CLICK + 0.05, 7) : 0)).toFixed(3)})`
+    })
+    // filtered order: Opus rows first
+    const opus = rows.filter((r) => r.model.includes('Opus')), rest = rows.filter((r) => !r.model.includes('Opus'))
+    const order = [...opus, ...rest]
+    const k = S(lt - CLICK, 1.8, 0.8)
+    rows.forEach((r) => {
+      const y0 = 170 + r.i * 106, y1 = 170 + order.indexOf(r) * 106
+      const y = lerp(y0, y1, k)
+      const e = pop(lt - 0.3 - r.i * 0.07, 2.4)
+      const dim = f && !r.model.includes('Opus') ? 0.35 : 1
+      r.r.style.transform = `translate(${((1 - e) * 120).toFixed(1)}px, ${y.toFixed(1)}px)`
+      r.r.style.opacity = (clamp(e * 1.5) * lerp(1, dim, k)).toFixed(3)
+      r.r.style.borderColor = f && r.model.includes('Opus') ? `rgba(198,255,61,${(0.6 * k).toFixed(2)})` : 'transparent'
+      r.rank.textContent = f ? (order.indexOf(r) < opus.length ? order.indexOf(r) + 1 : '–') : r.i + 1
+      r.pl.textContent = (r.plays * easeOut((lt - 0.4) / 1.6)).toFixed(2) + 'M'
+      r.draw(lt + r.i)
+    })
+  }
+})
+
+// 8 ─ open source toggle
+scene('open', 43, 46, (d) => {
+  const text = headline(d, 150, 360, 700, '06 · Your call', '*Open source or closed.', 'Share the code so others can learn and remix, or keep it private.')
+  const card = el('div', 'card', { position: 'absolute', left: '900px', top: '230px', width: '860px', height: '600px', overflow: 'hidden' }, d)
+  const game = el('div', 'abs', { left: '30px', top: '30px', width: '360px', height: '540px', borderRadius: '18px', overflow: 'hidden' }, card)
+  const draw = gameCanvas(game, 'dungeon', 360, 540)
+  const panel = el('div', 'abs code', { left: '420px', top: '110px', fontSize: '17px', lineHeight: 1.75 }, card,
+    `<span class="tk-k">const</span> hero = { x: <span class="tk-v">3</span>, y: <span class="tk-v">5</span> }\n<span class="tk-k">function</span> <span class="tk-v">step</span>(dt) {\n  torch.flicker(dt)\n  <span class="tk-k">for</span> (<span class="tk-k">const</span> e <span class="tk-k">of</span> enemies)\n    e.chase(hero)\n}\n<span class="tk-c">// made with Claude Opus 5.5</span>`)
+  const fork = el('div', 'btn', { position: 'absolute', left: '420px', bottom: '40px', width: '200px', height: '56px', fontSize: '19px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--line)' }, card, ICON.branch.replace(/30/g, '22') + 'Fork')
+  const lockBox = el('div', 'abs', { left: '420px', top: '120px', width: '400px', height: '300px', display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,0.35)', textAlign: 'center', fontSize: '19px' }, card, ICON.lock.replace(/26/g, '70') + '<div>Source is private</div>')
+  const tgl = el('div', 'abs', { left: '420px', top: '40px', display: 'flex', alignItems: 'center', gap: '16px', fontSize: '22px', fontWeight: 700 }, card)
+  const track = el('div', '', { width: '74px', height: '40px', borderRadius: '20px', background: 'rgba(255,255,255,0.15)', position: 'relative' }, tgl)
+  const knob = el('div', 'abs', { left: '4px', top: '4px', width: '32px', height: '32px', borderRadius: '16px', background: '#fff' }, track)
+  const lbl = el('span', '', {}, tgl, 'Open source')
+  const FLIP = b(1.3)
+  cue(b(43) + FLIP, 'toggle')
+  return (lt) => {
+    text(lt)
+    const p = pop(lt, 1.8)
+    card.style.transform = `scale(${lerp(0.85, 1, clamp(p, 0, 1.1)).toFixed(3)})`
+    card.style.opacity = clamp(p * 1.5).toFixed(3)
+    draw(lt)
+    const k = S(lt - FLIP, 3, 0.7)
+    knob.style.transform = `translateX(${(k * 34).toFixed(2)}px)`
+    track.style.background = k > 0.5 ? '#c6ff3d' : 'rgba(255,255,255,0.15)'
+    show(panel, smooth(FLIP + 0.1, FLIP + 0.5, lt), 8, 0)
+    panel.style.clipPath = `inset(0 0 ${(100 - easeOut((lt - FLIP - 0.1) / 0.8) * 100).toFixed(1)}% 0)`
+    show(fork, pop(lt - FLIP - 0.5, 3), 4, 10)
+    show(lockBox, 1 - smooth(FLIP, FLIP + 0.25, lt), 8)
+  }
+})
+
+// 9 ─ creator tips
+const TIPS = [
+  ['Keep your build under 5 MB so it loads instantly in the feed.', '@pixelwitch'],
+  ['Show gameplay in the first 2 seconds of your clip.', '@lumen'],
+  ['Ask Claude for a “juice pass”: screen shake, particles, sound.', '@devkai'],
+]
+scene('tips', 46, 49, (d) => {
+  const text = headline(d, 150, 360, 700, '07 · Creator tips', 'Get better with *every scroll.', 'Short tips from other creators show up between games in your feed.')
+  const cards = TIPS.map(([tip, by], i) => {
+    const c = el('div', 'card', { position: 'absolute', left: '980px', top: 220 + i * 215 + 'px', width: '760px', height: '185px', boxSizing: 'border-box', padding: '28px 34px', display: 'flex', gap: '24px' }, d)
+    el('div', '', { width: '58px', height: '58px', borderRadius: '16px', background: 'rgba(198,255,61,0.12)', display: 'grid', placeItems: 'center', flex: 'none' }, c, ICON.bulb)
+    el('div', '', {}, c, `<div class="kicker" style="font-size:13px;margin-bottom:10px">Creator tip</div><div style="font-size:26px;font-weight:650;line-height:1.3;letter-spacing:-0.3px">${tip}</div><div style="font-size:16px;color:rgba(255,255,255,0.5);margin-top:10px">from ${by}</div>`)
+    cue(b(46) + 0.3 + i * 0.35, 'pop')
+    return c
+  })
+  return (lt) => {
+    text(lt)
+    cards.forEach((c, i) => {
+      const p = pop(lt - 0.3 - i * 0.35, 2.3)
+      c.style.transform = `translateX(${((1 - p) * 300).toFixed(1)}px) rotate(${((1 - clamp(p)) * 5).toFixed(2)}deg)`
+      c.style.opacity = clamp(p * 1.5).toFixed(3)
+    })
+  }
+}, 'slide')
+
+// 10 ─ build with your team + Claude
+scene('team', 49, 56, (d) => {
+  const text = headline(d, 0, 70, 1920, '08 · Claude integration', 'Build together, *with Claude.', null, 'center')
+  const win = el('div', 'card', { position: 'absolute', left: '170px', top: '290px', width: '1580px', height: '700px', overflow: 'hidden' }, d)
+  const chatP = el('div', 'abs', { left: 0, top: 0, width: '560px', height: '100%', borderRight: '1px solid var(--line)', background: 'rgba(0,0,0,0.15)' }, win)
+  el('div', 'abs', { left: '30px', top: '26px', fontSize: '22px', fontWeight: 750 }, chatP, 'Team room · Lantern Keep')
+  const avatars = el('div', 'abs', { right: '26px', top: '22px', display: 'flex' }, chatP)
+  const PEOPLE = [['AJ', '#ff4fd8'], ['MK', '#3de0ff'], ['RS', '#ffb36b']]
+  PEOPLE.forEach(([n, c], i) => el('div', '', { width: '38px', height: '38px', borderRadius: '19px', background: c, color: '#0b0a14', fontSize: '14px', fontWeight: 800, display: 'grid', placeItems: 'center', marginLeft: '-8px', border: '3px solid #16132a' }, avatars, n))
+  const MSGS = [
+    ['AJ', '#ff4fd8', 'Can we make the dungeon darker? Torch light only.'],
+    ['Claude', '#c6ff3d', 'Done. Added a flickering torch and a light radius.'],
+    ['MK', '#3de0ff', 'Add enemies that chase the player'],
+    ['Claude', '#c6ff3d', 'Added 3 chasers with simple pathfinding. Try it →'],
+  ]
+  const msgEls = MSGS.map(([who, col, txt], i) => {
+    const m = el('div', 'abs', { left: '30px', right: '30px', top: 96 + i * 142 + 'px' }, chatP)
+    el('div', '', { fontSize: '16px', fontWeight: 800, color: col, marginBottom: '8px' }, m, who === 'Claude' ? '<span class="spark" style="margin-right:8px"></span>Claude' : who)
+    const body = el('div', '', { fontSize: '21px', lineHeight: 1.4, padding: '14px 18px', borderRadius: '16px', background: who === 'Claude' ? 'rgba(198,255,61,0.07)' : 'rgba(255,255,255,0.06)', border: who === 'Claude' ? '1px solid rgba(198,255,61,0.25)' : '1px solid transparent' }, m)
+    return { m, body, txt, claude: who === 'Claude' }
+  })
+  const MT = [0.3, 1.1, 2.1, 2.9]
+  MT.forEach((tt, i) => cue(b(49) + tt, MSGS[i][0] === 'Claude' ? 'type_stream' : 'pop', { dur: 0.6 }))
+  const prev = el('div', 'abs', { left: '600px', top: '40px', width: '940px', height: '620px', borderRadius: '18px', overflow: 'hidden' }, win)
+  const cv = el('canvas', '', {}, prev); cv.width = 940; cv.height = 620
+  const g = cv.getContext('2d')
+  const live = el('div', 'abs mono', { left: '22px', top: '18px', padding: '7px 12px', borderRadius: '8px', background: 'rgba(0,0,0,0.55)', fontSize: '14px', color: '#c6ff3d' }, prev, '● live preview')
+  const curs = PEOPLE.map(([n, c]) => el('div', 'abs', { color: c, zIndex: 3 }, win, ICON.cursor + `<span style="display:inline-block;margin-left:-4px;padding:3px 8px;border-radius:6px;background:${c};color:#0b0a14;font-size:13px;font-weight:800;vertical-align:top;margin-top:18px">${n}</span>`))
+  return (lt) => {
+    text(lt)
+    const p = pop(lt - 0.1, 1.7)
+    win.style.transform = `translateY(${((1 - p) * 160).toFixed(1)}px) scale(${lerp(0.92, 1, clamp(p, 0, 1.05)).toFixed(3)})`
+    win.style.opacity = clamp(p * 1.5).toFixed(3)
+    msgEls.forEach((m, i) => {
+      const a = pop(lt - MT[i], 3)
+      m.m.style.opacity = clamp(a * 2).toFixed(3)
+      m.m.style.transform = `translateY(${((1 - clamp(a)) * 20).toFixed(1)}px)`
+      const n = m.claude ? clamp(Math.floor((lt - MT[i]) / 0.012), 0, m.txt.length) : m.txt.length
+      m.body.textContent = m.txt.slice(0, n) || ' '
+    })
+    // the preview evolves with the conversation: bright room -> torch-lit -> chasers
+    const stage = lt < MT[1] + 0.4 ? 0 : lt < MT[3] + 0.4 ? 1 : 2
+    const w = 940, h = 620, cs = w / 12
+    g.fillStyle = '#07050d'; g.fillRect(0, 0, w, h)
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 12; x++) { g.fillStyle = stage ? ((x * 3 + y * 5) % 7 === 0 ? '#1d1830' : '#15111f') : ((x + y) % 2 ? '#3b3560' : '#332d55'); g.fillRect(x * cs + 1, y * cs + 1, cs - 2, cs - 2) }
+    const hx = w * 0.5 + Math.sin(lt * 0.9) * w * 0.25, hy = h * 0.55 + Math.sin(lt * 1.3) * h * 0.18
+    if (stage === 2) for (let i = 0; i < 3; i++) {
+      const k = clamp((lt - MT[3] - 0.3) * 0.6)
+      const sx = w * (0.15 + i * 0.35), sy = h * (0.2 + 0.25 * (i % 2))
+      const ex = lerp(sx, hx + Math.cos(i * 2.1 + lt) * 90, k), ey = lerp(sy, hy + Math.sin(i * 2.1 + lt) * 90, k)
+      g.fillStyle = '#ff3355'; g.beginPath(); g.arc(ex, ey, cs * 0.28 * pop(lt - MT[3] - 0.3 - i * 0.1, 3), 0, 7); g.fill()
+    }
+    g.fillStyle = '#3de0ff'; g.fillRect(hx - cs * 0.24, hy - cs * 0.24, cs * 0.48, cs * 0.48)
+    if (stage >= 1) {
+      const k = smooth(MT[1] + 0.4, MT[1] + 0.9, lt)
+      const light = g.createRadialGradient(hx, hy, cs * 0.5, hx, hy, w * 0.45)
+      light.addColorStop(0, 'rgba(0,0,0,0)'); light.addColorStop(1, `rgba(0,0,0,${(0.93 * k).toFixed(3)})`)
+      g.fillStyle = light; g.fillRect(0, 0, w, h)
+      g.fillStyle = `rgba(255,180,90,${(0.14 * k).toFixed(3)})`; g.beginPath(); g.arc(hx, hy, cs * (1.6 + 0.12 * Math.sin(lt * 13)), 0, 7); g.fill()
+    }
+    live.style.opacity = (0.6 + 0.4 * Math.sin(lt * 6)).toFixed(3)
+    // teammates' cursors roam the preview
+    curs.forEach((c, i) => {
+      const x = 760 + i * 230 + Math.sin(lt * (0.9 + i * 0.3) + i) * 120, y = 200 + i * 120 + Math.cos(lt * (1.1 + i * 0.2) + i * 2) * 80
+      c.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
+      c.style.opacity = smooth(0.6 + i * 0.2, 0.9 + i * 0.2, lt).toFixed(3)
+    })
+  }
+})
+
+// 11 ─ recap: one word per half beat
+const RECAP = [['Feed', '#7c5cff', '#fff'], ['Search', '#07060d', '#fff'], ['Upload', '#c6ff3d', '#0b0a14'], ['API', '#ff4fd8', '#fff'], ['Leaderboard', '#07060d', '#c6ff3d'], ['Open source', '#3de0ff', '#0b0a14']]
+scene('recap', 56, 59, (d) => {
+  const panes = RECAP.map(([w, bg, fg]) => {
+    const p = el('div', 'abs', { inset: 0, background: bg, display: 'grid', placeItems: 'center' }, d)
+    const t = el('div', '', { fontSize: '260px', fontWeight: 900, letterSpacing: '-12px', color: fg }, p, w)
+    return { p, t }
+  })
+  RECAP.forEach((_, i) => cue(b(56 + i * 0.5), 'stab', { i }))
+  return (lt) => {
+    const i = clamp(Math.floor(lt / b(0.5)), 0, panes.length - 1)
+    panes.forEach((p, k) => {
+      p.p.style.display = k === i ? 'grid' : 'none'
+      if (k !== i) return
+      const local = lt - k * b(0.5)
+      const s = 1.18 - 0.18 * easeOutExpo(local / 0.25)
+      p.t.style.transform = `scale(${s.toFixed(4)})`
+      p.t.style.filter = local < 0.08 ? `blur(${((0.08 - local) * 120).toFixed(1)}px)` : 'none'
+    })
+  }
+}, 'cut')
+
+// 12 ─ end card
+scene('end', 59, 64, (d) => {
+  const wrap = el('div', 'abs', { left: 0, right: 0, top: '250px', textAlign: 'center' }, d)
+  const mark = el('div', '', { display: 'inline-block' }, wrap, logoMark(130))
+  const word = el('div', '', { fontSize: '104px', fontWeight: 850, letterSpacing: '-4px', marginTop: '22px' }, wrap, BRAND)
+  const line = el('div', '', { fontSize: '44px', fontWeight: 700, letterSpacing: '-1px', marginTop: '8px' }, wrap, 'Upload your first game<span style="color:var(--l)">.</span>')
+  const cta = el('div', 'btn', { marginTop: '44px', padding: '0 44px', height: '84px', fontSize: '28px', background: 'linear-gradient(90deg,#ff4fd8,#7c5cff)', boxShadow: '0 0 60px rgba(255,79,216,0.45)' }, wrap, 'Get early access →')
+  const wc = el('div', 'kicker', { marginTop: '40px', color: 'rgba(255,255,255,0.5)' }, wrap, 'Works with Claude · HTML · GitHub · API')
+  cue(b(59), 'impact'); cue(b(59) + 1.2, 'chime')
+  return (lt) => {
+    const m = pop(lt, 2.2)
+    mark.style.transform = `scale(${clamp(m, 0, 1.3).toFixed(4)}) rotate(${((1 - m) * 20).toFixed(2)}deg)`
+    show(word, smooth(0.15, 0.55, lt), 14, 30)
+    show(line, smooth(0.4, 0.8, lt), 10, 20)
+    const c = pop(lt - 0.7, 2.6)
+    cta.style.transform = `scale(${clamp(c, 0, 1.2).toFixed(3)})`
+    cta.style.opacity = clamp(c * 2).toFixed(3)
+    cta.style.boxShadow = `0 0 ${(50 + 20 * Math.sin(lt * 4)).toFixed(1)}px rgba(255,79,216,0.45)`
+    show(wc, smooth(1.1, 1.5, lt), 6, 10)
+  }
+}, 'flash')
+
+// scene transitions: whoosh on every entry
+for (const s of scenes) if (s.t0 > 0 && s.enter !== 'cut') cue(s.t0 - 0.12, s.enter === 'flash' ? 'whoosh_big' : 'whoosh')
+
+// ---------- background ----------
+const bg = $('bg').getContext('2d')
+function drawBackground(t) {
+  bg.fillStyle = '#07060d'; bg.fillRect(0, 0, W, H)
+  const blobs = [[0.2, 0.3, '124,92,255', 0.35], [0.8, 0.7, '255,79,216', 0.25], [0.6, 0.15, '61,224,255', 0.14]]
+  blobs.forEach(([x, y, c, a], i) => {
+    const cx = W * (x + 0.06 * Math.sin(t * 0.3 + i * 2)), cy = H * (y + 0.06 * Math.cos(t * 0.25 + i))
+    const gr = bg.createRadialGradient(cx, cy, 0, cx, cy, W * 0.45)
+    gr.addColorStop(0, `rgba(${c},${a})`); gr.addColorStop(1, `rgba(${c},0)`)
+    bg.fillStyle = gr; bg.fillRect(0, 0, W, H)
+  })
+  // perspective floor grid
+  bg.strokeStyle = 'rgba(160,140,255,0.08)'; bg.lineWidth = 1
+  const hy = H * 0.62
+  for (let i = -14; i <= 14; i++) { bg.beginPath(); bg.moveTo(W / 2 + i * 30, hy); bg.lineTo(W / 2 + i * 260, H); bg.stroke() }
+  for (let k = 0; k < 12; k++) { const z = ((k / 12 + t * 0.08) % 1), y = hy + z * z * (H - hy); bg.beginPath(); bg.moveTo(0, y); bg.lineTo(W, y); bg.stroke() }
+}
+
+// ---------- seek ----------
+function seek(tIn) {
+  const t = clamp(tIn, 0, DUR - 1e-6)
+  drawBackground(t)
+  let flash = 0
+  for (const s of scenes) {
+    const lt = t - s.t0
+    let v
+    if (s.enter === 'cut') v = t >= s.t0 && t < s.t1 ? 1 : 0
+    else v = smooth(s.t0 - 0.05, s.t0 + 0.3, t) * (s.name === 'end' ? 1 : 1 - smooth(s.t1 - 0.22, s.t1, t))
+    if (s.name === 'hook') v = (t < s.t1 ? 1 : 0) * (1 - smooth(s.t1 - 0.15, s.t1, t))
+    // display, not visibility: children that set visibility:visible would otherwise leak through a hidden parent
+    if (v < 0.002) { s.div.style.display = 'none'; continue }
+    s.div.style.display = 'block'
+    s.div.style.opacity = v.toFixed(4)
+    const enterP = clamp((t - s.t0 + 0.05) / 0.35), exitP = s.name === 'end' ? 0 : smooth(s.t1 - 0.22, s.t1, t)
+    let tf = '', blur = 0
+    if (s.enter === 'zoom' || s.enter === 'flash') { tf = `scale(${(lerp(1.08, 1, easeOut(enterP)) * lerp(1, 0.94, exitP)).toFixed(4)})`; blur = (1 - easeOut(enterP)) * 14 + exitP * 12 }
+    else if (s.enter === 'slide') { tf = `translateX(${((1 - easeOutExpo(enterP)) * 240 - exitP * 180).toFixed(1)}px)`; blur = (1 - easeOut(enterP)) * 10 + exitP * 10 }
+    s.div.style.transform = tf
+    s.div.style.filter = blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : 'none'
+    if (s.enter === 'flash') flash = Math.max(flash, Math.exp(-Math.max(0, t - s.t0) * 5) * (t >= s.t0 ? 1 : 0))
+    s.update(lt)
+  }
+  $('flash').style.opacity = (flash * 0.85).toFixed(4)
+  $('turb').setAttribute('seed', Math.floor(t * 24) % 60)
+}
+
+// ---------- api ----------
+window.seek = seek
+window.timeline = () => ({ duration: DUR, bpm: BPM, beat: B, cues: CUES.slice().sort((a, c) => a.t - c.t) })
+window.configure = () => {}
+
+if (!window.__RENDER__) {
+  document.body.classList.add('preview')
+  const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth / W, innerHeight / H))
+  fit(); addEventListener('resize', fit)
+  const params = new URLSearchParams(location.search)
+  document.fonts.ready.then(() => {
+    if (params.has('t')) seek(+params.get('t'))
+    else { const t0 = performance.now(); const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop) }; loop() }
+  })
+}
+</script>
+</body>
+</html>

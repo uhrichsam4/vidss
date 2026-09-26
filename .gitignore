@@ -5,3 +5,9 @@ recreation/audio/*.wav
 migration-map/tmp/
 migration-map/out/
 migration-map/audio/*.wav
+app-ad/tmp/
+app-ad/out/
+app-ad/audio/*.wav
+app-ad-morph/tmp/
+app-ad-morph/out/
+app-ad-morph/audio/*.wav
