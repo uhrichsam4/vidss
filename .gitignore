@@ -1,0 +1,4 @@
+node_modules/
+recreation/tmp/
+recreation/out/
+recreation/audio/*.wav
