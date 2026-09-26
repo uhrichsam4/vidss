@@ -17,3 +17,6 @@ game-clips/frames/
 game-clips/clips/probe*
 game-clips/clips/*.log
 game-clips/clips/*.jpg
+europe-history/tmp/
+europe-history/out/
+europe-history/audio/*.wav

@@ -1,0 +1,530 @@
+<!doctype html>
+<!--
+  "How Europe Rose — and what it cost the world." 57s motion-graphics explainer, 1920x1080, 120 BPM.
+  One pool of 2,564 dots never disappears: every chapter's dots re-form into the next chapter's picture.
+  Every pixel is a pure function of time: seek(t). Open in a browser to preview (?t=12 freezes a frame).
+  Sources for every number are in README.md.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>europe history</title>
+<style>
+  @font-face { font-family: 'Inter'; src: url(assets/fonts/inter.woff2) format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'JetBrains Mono'; src: url(assets/fonts/jetbrains-mono.woff2) format('woff2'); font-weight: 100 800; font-display: block; }
+  :root { --ink: #0b0b0c; --paper: #efeee9; --red: #ff4b1f; --blue: #2b3fe8; }
+  html, body { margin: 0; background: #000; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview #stage { transform: scale(var(--fit, 0.5)); transform-origin: center; flex: none; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--ink); color: var(--paper);
+    font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: 'tnum' 1; }
+  canvas, .abs { position: absolute; left: 0; top: 0; }
+  .mono { font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.16em; }
+  .hud { font-size: 12px; color: rgba(239,238,233,0.55); }
+  .mask { overflow: hidden; padding-bottom: 0.06em; }
+  .word { display: inline-block; white-space: pre; }
+  .h1 { font-size: 84px; font-weight: 850; letter-spacing: -3px; line-height: 0.98; }
+  .sub { font-size: 25px; line-height: 1.42; font-weight: 450; color: rgba(239,238,233,0.72); }
+  .kick { font-size: 15px; color: var(--red); margin-bottom: 20px; }
+  .marq { position: absolute; left: -200px; width: 2400px; height: 108px; line-height: 108px; white-space: nowrap; font-size: 76px; font-weight: 850; letter-spacing: -2.5px; }
+  .legend { display: inline-flex; align-items: center; gap: 8px; margin-right: 20px; font-size: 16px; font-weight: 600; }
+  .legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  #flash { inset: 0; background: #fff; pointer-events: none; }
+  #grain { inset: 0; opacity: 0.07; mix-blend-mode: screen; pointer-events: none; width: 1920px; height: 1080px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv" width="1920" height="1080"></canvas>
+  <div id="layers"></div>
+  <!-- HUD frame -->
+  <div class="abs mono hud" style="left:40px;top:34px">Europe — a short history</div>
+  <div class="abs mono hud" id="hudChapter" style="left:auto;right:40px;top:34px"></div>
+  <div class="abs mono hud" id="hudYear" style="left:40px;top:auto;bottom:34px"></div>
+  <div class="abs mono hud" style="left:auto;right:40px;top:auto;bottom:34px">1400 — 1994</div>
+  <div class="abs" style="left:40px;top:60px;width:1840px;height:1px;background:rgba(239,238,233,0.12)"></div>
+  <div class="abs" style="left:40px;top:1020px;width:1840px;height:1px;background:rgba(239,238,233,0.12)"></div>
+  <svg id="grain" class="abs"><filter id="nz"><feTurbulence id="turb" type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="0"/></filter><rect width="100%" height="100%" filter="url(#nz)"/></svg>
+  <div class="abs" id="flash"></div>
+</div>
+
+<script src="data/world.js"></script>
+<script>
+// ---------- time ----------
+const W = 1920, H = 1080
+const BPM = 120, B = 60 / BPM
+const bt = (n) => n * B
+// chapters, in beats: [id, start, end]
+const CH = [
+  ['divided', 0, 8], ['print', 8, 18], ['oceans', 18, 30], ['americas', 30, 42], ['slavery', 42, 54],
+  ['science', 54, 64], ['industry', 64, 76], ['africa', 76, 90], ['independence', 90, 102], ['legacy', 102, 114],
+].map(([id, a, z], i) => ({ id, i, t0: bt(a), t1: bt(z) }))
+const DUR = bt(114)
+const TX = 0.7 // seconds of dot morph between chapters
+
+// ---------- math ----------
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x))
+const lerp = (a, c, p) => a + (c - a) * p
+const smooth = (a, c, x) => { const t = clamp((x - a) / (c - a)); return t * t * (3 - 2 * t) }
+const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3)
+const easeOutExpo = (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * clamp(t)))
+const easeInOut = (t) => { t = clamp(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+function S(t, f, z) { if (t <= 0) return 0; const w = 2 * Math.PI * f; if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t)) }
+const pulse = (t, f) => { if (t <= 0) return 0; const x = 2 * Math.PI * f * t; return x * Math.exp(1 - x) }
+function rng(seed) { return () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 } }
+const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+
+// ---------- palette ----------
+const PAPER = '#efeee9', RED = '#ff4b1f', BLUE = '#2b3fe8', GREY = '#5c5b58', INK = '#0b0b0c'
+const POWER = { UK: '#ff4b1f', FR: '#2b3fe8', DE: '#efeee9', BE: '#ffb400', PT: '#1fbf8f', IT: '#b36bff', ES: '#ff7fa8' }
+const POWER_NAME = { UK: 'Britain', FR: 'France', DE: 'Germany', BE: 'Belgium', PT: 'Portugal', IT: 'Italy', ES: 'Spain' }
+
+// ---------- map ----------
+const WD = window.WORLD.dots, NAMES = window.WORLD.names, ND = WD.length / 3
+const D2R = Math.PI / 180
+function ne(lon, lat) { const l = lon * D2R, p = lat * D2R, p2 = p * p, p4 = p2 * p2; return [l * (0.8707 - 0.131979 * p2 + p4 * (-0.013791 + p4 * (0.003971 * p2 - 0.001529 * p4))), p * (1.007226 + p2 * (0.015085 + p4 * (-0.044475 + 0.028874 * p2 - 0.005916 * p4)))] }
+const K = 1780 / (2 * 2.7353)
+const cam = (lon, lat, zoom, oy = 0) => { const [cx, cy] = ne(lon, lat); return { cx, cy, s: K * zoom, oy } }
+const lerpCam = (a, c, p) => ({ cx: lerp(a.cx, c.cx, p), cy: lerp(a.cy, c.cy, p), s: lerp(a.s, c.s, p), oy: lerp(a.oy, c.oy, p) })
+const norm = (lon) => ((((lon + 180) % 360) + 360) % 360) - 180
+const proj = (c, lon, lat) => { const [x, y] = ne(norm(lon), lat); return [W / 2 + (x - c.cx) * c.s, H / 2 + c.oy - (y - c.cy) * c.s] }
+const landNE = new Float32Array(ND * 2)
+for (let i = 0; i < ND; i++) { const [x, y] = ne(WD[i * 3], WD[i * 3 + 1]); landNE[i * 2] = x; landNE[i * 2 + 1] = y }
+
+const AFRICA = {
+  // [colonizer, year of effective European control, year of independence] — see README for sources
+  Algeria: ['FR', 1830, 1962], Tunisia: ['FR', 1881, 1956], Morocco: ['FR', 1912, 1956], Libya: ['IT', 1912, 1951], Egypt: ['UK', 1882, 1922],
+  Sudan: ['UK', 1899, 1956], 'S. Sudan': ['UK', 1899, 1956], Eritrea: ['IT', 1890, 1952], Ethiopia: [null], Djibouti: ['FR', 1884, 1977],
+  Somalia: ['IT', 1889, 1960], Somaliland: ['UK', 1884, 1960], Kenya: ['UK', 1895, 1963], Uganda: ['UK', 1894, 1962], Tanzania: ['DE', 1885, 1961],
+  Rwanda: ['DE', 1894, 1962], Burundi: ['DE', 1899, 1962], 'Dem. Rep. Congo': ['BE', 1885, 1960], Congo: ['FR', 1882, 1960], Gabon: ['FR', 1885, 1960],
+  'Eq. Guinea': ['ES', 1900, 1968], Cameroon: ['DE', 1884, 1960], 'Central African Rep.': ['FR', 1903, 1960], Chad: ['FR', 1900, 1960],
+  Niger: ['FR', 1900, 1960], Nigeria: ['UK', 1900, 1960], Benin: ['FR', 1894, 1960], Togo: ['DE', 1884, 1960], Ghana: ['UK', 1874, 1957],
+  "Côte d'Ivoire": ['FR', 1893, 1960], 'Burkina Faso': ['FR', 1896, 1960], Mali: ['FR', 1892, 1960], Liberia: [null], 'Sierra Leone': ['UK', 1896, 1961],
+  Guinea: ['FR', 1891, 1958], 'Guinea-Bissau': ['PT', 1880, 1974], Senegal: ['FR', 1860, 1960], Gambia: ['UK', 1888, 1965], Mauritania: ['FR', 1903, 1960],
+  'W. Sahara': ['ES', 1884, 1975], Angola: ['PT', 1885, 1975], Zambia: ['UK', 1891, 1964], Malawi: ['UK', 1891, 1964], Mozambique: ['PT', 1891, 1975],
+  Zimbabwe: ['UK', 1890, 1980], Namibia: ['DE', 1884, 1990], Botswana: ['UK', 1885, 1966], 'South Africa': ['UK', 1880, 1994], Lesotho: ['UK', 1868, 1966],
+  eSwatini: ['UK', 1903, 1968], Madagascar: ['FR', 1896, 1960],
+}
+const EU_EXCLUDE = new Set(['Turkey', 'Russia', 'Kazakhstan', 'Syria', 'Iraq', 'Iran', 'Georgia', 'Armenia', 'Azerbaijan', 'Lebanon', 'Israel', 'Jordan', 'Cyprus', 'N. Cyprus', 'Palestine'])
+const africaDots = [], europeDots = []
+for (let i = 0; i < ND; i++) {
+  const lon = WD[i * 3], lat = WD[i * 3 + 1], n = NAMES[WD[i * 3 + 2]]
+  if (AFRICA[n]) africaDots.push({ lon, lat, info: AFRICA[n], w: Math.cos(lat * D2R) })
+  else if (lon > -11 && lon < 40 && lat > 35.5 && lat < 71 && !EU_EXCLUDE.has(n)) europeDots.push({ lon, lat })
+}
+const N = africaDots.length
+const AF_W = africaDots.reduce((s, d) => s + d.w, 0)
+// hundreds of rival states: colour Europe's dots by the nearest of ~70 random "capitals"
+const R0 = rng(1400)
+const capitals = [...Array(70)].map(() => ({ lon: -10 + R0() * 48, lat: 37 + R0() * 32, c: [PAPER, RED, BLUE, GREY, PAPER, GREY][Math.floor(R0() * 6)] }))
+europeDots.forEach((d) => { let best = 1e9; for (const c of capitals) { const dd = (c.lon - d.lon) ** 2 * Math.cos(d.lat * D2R) ** 2 + (c.lat - d.lat) ** 2; if (dd < best) { best = dd; d.c = c.c } } })
+
+// ---------- cameras ----------
+const CAM = {
+  europe: cam(-6, 50, 3.0, 20), world: cam(10, 18, 0.98, 40), americas: cam(-70, 5, 1.55, 40),
+  atlantic: cam(-25, 8, 1.55, 40), africa: cam(18, 2, 2.35, 50),
+}
+
+// ---------- routes ----------
+const ROUTES = [
+  { name: 'Columbus', year: '1492', color: RED, pts: [[-6.9, 37.2], [-15.5, 28], [-40, 26], [-74.5, 24.1]] },
+  { name: 'da Gama', year: '1498', color: PAPER, pts: [[-9.1, 38.7], [-23.5, 15], [-22, -12], [8, -34], [18.5, -35.5], [40.7, -15], [40.1, -3.2], [60, 8], [75.8, 11.3]] },
+  { name: 'Magellan–Elcano', year: '1519–22', color: BLUE, pts: [[-6, 37.4], [-25, 5], [-43, -23], [-60, -42], [-70, -53], [-95, -35], [-140, -15], [-215.2, 13.4], [-236, 10], [-260, -10], [-300, -30], [-341.5, -35], [-375, 5], [-366, 37.4]] },
+]
+function routePoint(r, u) { // polyline in (unwrapped) lon/lat, uniform-ish param
+  const P = r.pts, segs = P.length - 1, x = clamp(u) * segs, i = Math.min(segs - 1, Math.floor(x)), f = x - i
+  return [lerp(P[i][0], P[i + 1][0], f), lerp(P[i][1], P[i + 1][1], f)]
+}
+// slave trade: West & Central African ports -> Brazil / Caribbean / Spanish America / North America (weights ~ SlaveVoyages)
+const AF_PORTS = [[-16, 14, 8], [-1, 5.5, 13], [2.5, 6.3, 16], [7, 4.5, 13], [13, -8.8, 45], [35, -15, 5]]
+const AM_PORTS = [[-38.5, -13, 22], [-43, -22.9, 22], [-76.8, 18, 14], [-72, 19, 13], [-61, 14, 13], [-75.5, 10.4, 6], [-79.9, 32.8, 4], [-66, 18.2, 6]]
+const pickW = (arr, r) => { const tot = arr.reduce((s, a) => s + a[2], 0); let u = r * tot; for (const a of arr) { u -= a[2]; if (u <= 0) return a } return arr[arr.length - 1] }
+const R1 = rng(1619)
+const VOYAGES = [...Array(125)].map((_, k) => { const a = pickW(AF_PORTS, R1()), z = pickW(AM_PORTS, R1()); return { a: [a[0] + (R1() - 0.5) * 3, a[1] + (R1() - 0.5) * 3], z: [z[0] + (R1() - 0.5) * 3, z[1] + (R1() - 0.5) * 2], t: R1(), lost: k % 7 === 3 } }) // 18 of 125 ≈ 1.8M of 12.5M
+const INDUSTRY = { cols: ['China', 'India', 'Europe', 'Rest of world'], y1750: [33, 25, 23, 19], y1900: [6, 2, 62, 30] } // Bairoch 1982, rounded
+
+// ---------- particle targets per chapter ----------
+// every chapter returns, for particle i at local time lt: [x, y, size, colour, alpha, shape]
+// shape: 0 dot, 1 square, 2 letter, 3 cube
+const R2 = rng(1450)
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const letterOf = [...Array(N)].map(() => LETTERS[Math.floor(R2() * 26)])
+const rnd = [...Array(N)].map(() => [R2(), R2(), R2(), R2()])
+const GRID_COLS = 44, GRID_ROWS = 20, GRID_CELL = 38
+const colOf = (k, yr) => { const arr = INDUSTRY[yr]; let s = 0; for (let c = 0; c < 4; c++) { s += arr[c]; if (k < s) return [c, k - (s - arr[c])] } return [3, 0] }
+function cubePos(k, yr) { const [c, j] = colOf(k, yr); const x0 = 300 + c * 400; return [x0 + (j % 5) * 44 + ((Math.floor(j / 5)) % 2) * 0, 900 - Math.floor(j / 5) * 44] }
+const HIDE = (x = W / 2, y = H / 2) => [x, y, 0, PAPER, 0, 0]
+
+const TARGET = {
+  divided(i, lt) {
+    const c = CAM.europe
+    // first 1.4s: a single red dot bounces on a line; then Europe's dots bloom out of it
+    const bloom = smooth(1.3, 2.4, lt)
+    const bounceY = 560 - Math.abs(Math.sin(Math.min(lt, 1.4) * Math.PI * 2.1)) * 120 * Math.exp(-lt * 0.8)
+    if (i >= europeDots.length) return HIDE(W / 2, bounceY)
+    const d = europeDots[i]
+    const [x, y] = proj(c, d.lon, d.lat)
+    const k = clamp(bloom * 1.4 - rnd[i][0] * 0.4)
+    if (i === 0) return [lerp(W / 2, x, k), lerp(bounceY, y, k), lerp(18, 7, k), k > 0.5 ? d.c : RED, 1, 0]
+    return [lerp(W / 2, x, k), lerp(bounceY, y, k), 7, d.c, k, 0]
+  },
+  print(i, lt) {
+    if (i >= GRID_COLS * GRID_ROWS) return HIDE(W / 2, H / 2)
+    const cx = i % GRID_COLS, cy = Math.floor(i / GRID_COLS)
+    const x = 960 - (GRID_COLS / 2) * GRID_CELL + cx * GRID_CELL + GRID_CELL / 2, y = 160 + cy * GRID_CELL
+    const wave = pulse(lt - 0.2 - (cx + cy) * 0.025, 3)
+    const col = (cx * 7 + cy * 3) % 11 === 0 ? RED : (cx * 5 + cy * 11) % 13 === 0 ? BLUE : PAPER
+    const a = 0.35 + 0.65 * clamp(wave * 1.5)
+    return [x, y, 22, col, a * (1 - smooth(bt(4.5), bt(5.5), lt)), 2]
+  },
+  oceans(i, lt) {
+    const c = CAM.world
+    const r = i % 3, k = Math.floor(i / 3)
+    if (k >= 60) return HIDE(...proj(c, 0, 45))
+    const R = ROUTES[r]
+    const head = clamp((lt - 0.5 - r * 0.9) / 3.2)
+    const u = head - (k / 60) * 0.35
+    if (u < 0) return HIDE(...proj(c, R.pts[0][0], R.pts[0][1]))
+    const [lon, lat] = routePoint(R, u)
+    const [x, y] = proj(c, lon, lat)
+    return [x, y, k === 0 ? 16 : 7 * (1 - k / 70), R.color, (1 - k / 64), 0]
+  },
+  americas(i, lt) {
+    if (i >= 100) return HIDE(1350, 540)
+    const gx = i % 10, gy = Math.floor(i / 10)
+    const x = 1150 + gx * 52, y = 300 + gy * 52
+    const dead = i >= 10 ? smooth(1.4 + (99 - i) * 0.035, 1.7 + (99 - i) * 0.035, lt) : 0 // 90 of 100 go dark
+    return [x, y, 18, dead > 0.5 ? GREY : RED, lerp(1, 0.28, dead), 0]
+  },
+  slavery(i, lt) {
+    const c = CAM.atlantic
+    if (i >= VOYAGES.length) return HIDE(...proj(c, 5, 5))
+    const v = VOYAGES[i]
+    const u = clamp((lt - 0.4 - v.t * 3.4) / 1.6)
+    const lon = lerp(v.a[0], v.z[0], easeInOut(u)), lat = lerp(v.a[1], v.z[1], easeInOut(u)) + Math.sin(Math.PI * u) * 6
+    const [x, y] = proj(c, lon, lat)
+    const fade = v.lost ? smooth(0.45, 0.6, u) : 0
+    return [x, y, 9, v.lost ? GREY : PAPER, (u > 0 ? 1 : 0.9) * (1 - fade * 0.85), 0]
+  },
+  science(i, lt) {
+    const r = rnd[i]
+    const radius = 60 + Math.pow(r[0], 0.7) * 430
+    const tilt = 0.42, rot = -0.35
+    const ang = r[1] * Math.PI * 2 + lt * (0.9 * 180 / radius)
+    const ex = Math.cos(ang) * radius, ey = Math.sin(ang) * radius * tilt
+    const x = 1240 + ex * Math.cos(rot) - ey * Math.sin(rot), y = 540 + ex * Math.sin(rot) + ey * Math.cos(rot)
+    const col = r[2] < 0.12 ? RED : r[2] < 0.24 ? BLUE : PAPER
+    return [x, y, 1.6 + r[3] * 2.4, col, 0.45 + r[3] * 0.55, 0]
+  },
+  industry(i, lt) {
+    if (i >= 100) return HIDE(960, 920)
+    const swap = S(lt - (2.6 + (i % 17) * 0.04), 1.4, 0.8)
+    const [x0, y0] = cubePos(i, 'y1750'), [x1, y1] = cubePos(i, 'y1900')
+    const arc = Math.sin(Math.PI * clamp(swap)) * -140
+    const rise = easeOutExpo((lt - 0.2 - (i % 25) * 0.02) / 0.8)
+    const [c0] = colOf(i, 'y1750'), [c1] = colOf(i, 'y1900')
+    const col = [RED, '#ffb400', BLUE, PAPER][swap > 0.5 ? c1 : c0]
+    return [lerp(x0, x1, swap), lerp(y0, y1, swap) + arc + (1 - rise) * 200, 36, col, rise, 3]
+  },
+  africa(i, lt) {
+    const d = africaDots[i], c = CAM.africa
+    const [x, y] = proj(c, d.lon, d.lat)
+    const year = yearAfrica(lt)
+    const [pw, y0] = d.info
+    const on = pw && year >= y0 + (d.lat * 0.02 + rnd[i][0] * 0.8) // a little ripple inside each country
+    return [x, y, 6.4, on ? POWER[pw] : '#3a3936', 1, 0]
+  },
+  independence(i, lt) {
+    const d = africaDots[i], c = CAM.africa
+    const [x, y] = proj(c, d.lon, d.lat)
+    const year = yearIndep(lt)
+    const [pw, , y1] = d.info
+    const colonised = pw && year < y1 + rnd[i][0] * 0.8
+    return [x, y, 6.4, colonised ? POWER[pw] : PAPER, colonised ? 1 : 0.92, 0]
+  },
+  legacy(i, lt) {
+    const d = africaDots[i], c = CAM.africa
+    const [x0, y0] = proj(c, d.lon, d.lat)
+    const r = rnd[i], burst = easeOutExpo((lt - 0.1) / 1.6)
+    const ang = r[0] * Math.PI * 2, dist = burst * (500 + r[1] * 900)
+    return [x0 + Math.cos(ang) * dist, y0 + Math.sin(ang) * dist, 6.4 * (1 - burst * 0.6), PAPER, 1 - smooth(0.2, 1.4, lt), 0]
+  },
+}
+const yearAfrica = (lt) => Math.round(lerp(1870, 1914, smooth(0.8, bt(10), lt)))
+const yearIndep = (lt) => Math.round(lerp(1945, 1994, smooth(0.6, bt(9.5), lt)))
+
+// ---------- draw ----------
+const cv = document.getElementById('cv'), g = cv.getContext('2d')
+function drawParticles(t) {
+  // find current chapter and (maybe) the next one we are morphing into
+  let ci = CH.findIndex((c) => t >= c.t0 && t < c.t1); if (ci < 0) ci = CH.length - 1
+  const A = CH[ci], Bn = CH[ci + 1]
+  const into = Bn ? clamp((t - (Bn.t0 - TX)) / TX) : 0
+  const fa = TARGET[A.id], fb = Bn ? TARGET[Bn.id] : null
+  const lta = t - A.t0, ltb = Bn ? t - Bn.t0 : 0
+  const letters = [], cubes = []
+  for (let i = 0; i < N; i++) {
+    let p = fa(i, lta)
+    if (into > 0) {
+      const q = fb(i, Math.max(0, ltb))
+      const k = easeInOut(clamp(into * 1.5 - rnd[i][2] * 0.5))
+      p = [lerp(p[0], q[0], k), lerp(p[1], q[1], k), lerp(p[2], q[2], k), k < 0.5 ? p[3] : q[3], lerp(p[4], q[4], k), k < 0.5 ? p[5] : q[5]]
+    }
+    if (p[4] < 0.01 || p[2] < 0.2) continue
+    if (p[5] === 2) { letters.push([i, p]); continue }
+    if (p[5] === 3) { cubes.push(p); continue }
+    g.globalAlpha = p[4]; g.fillStyle = p[3]
+    if (p[5] === 1) g.fillRect(p[0] - p[2] / 2, p[1] - p[2] / 2, p[2], p[2])
+    else { g.beginPath(); g.arc(p[0], p[1], p[2] / 2, 0, Math.PI * 2); g.fill() }
+  }
+  if (letters.length) {
+    g.font = '800 26px Inter'; g.textAlign = 'center'; g.textBaseline = 'middle'
+    for (const [i, p] of letters) { g.globalAlpha = p[4]; g.fillStyle = p[3]; g.fillText(letterOf[i], p[0], p[1]) }
+  }
+  cubes.sort((a, c) => a[1] - c[1] || a[0] - c[0])
+  for (const p of cubes) drawCube(p)
+  g.globalAlpha = 1
+  return { A, into }
+}
+function drawCube([x, y, s, col, a]) {
+  const [r, gg, bb] = hexToRgb(col)
+  const shade = (k) => `rgb(${Math.round(r * k)},${Math.round(gg * k)},${Math.round(bb * k)})`
+  g.globalAlpha = a
+  // top face (diamond), then the two side faces darker
+  g.fillStyle = shade(1); g.beginPath(); g.moveTo(x, y - s * 0.5); g.lineTo(x + s / 2, y - s * 0.25); g.lineTo(x, y); g.lineTo(x - s / 2, y - s * 0.25); g.closePath(); g.fill()
+  g.fillStyle = shade(0.72); g.beginPath(); g.moveTo(x - s / 2, y - s * 0.25); g.lineTo(x, y); g.lineTo(x, y + s * 0.45); g.lineTo(x - s / 2, y + s * 0.2); g.closePath(); g.fill()
+  g.fillStyle = shade(0.5); g.beginPath(); g.moveTo(x + s / 2, y - s * 0.25); g.lineTo(x, y); g.lineTo(x, y + s * 0.45); g.lineTo(x + s / 2, y + s * 0.2); g.closePath(); g.fill()
+}
+function drawLand(c, alpha, color = '#2a2927') {
+  if (alpha < 0.01) return
+  g.globalAlpha = alpha; g.fillStyle = color
+  for (let i = 0; i < ND; i++) {
+    const x = W / 2 + (landNE[i * 2] - c.cx) * c.s, y = H / 2 + c.oy - (landNE[i * 2 + 1] - c.cy) * c.s
+    if (x < -5 || x > W + 5 || y < -5 || y > H + 5) continue
+    g.fillRect(x - 1.8, y - 1.8, 3.6, 3.6)
+  }
+  g.globalAlpha = 1
+}
+function drawRoutes(lt, alpha) {
+  const c = CAM.world
+  ROUTES.forEach((R, r) => {
+    const head = clamp((lt - 0.5 - r * 0.9) / 3.2)
+    g.strokeStyle = R.color; g.globalAlpha = 0.85 * alpha; g.lineWidth = 2.5; g.setLineDash([3, 6]); g.beginPath()
+    let px = null
+    for (let k = 0; k <= 120 * head; k++) {
+      const [lon, lat] = routePoint(R, k / 120), [x, y] = proj(c, lon, lat)
+      if (px === null || Math.abs(x - px) > W / 2) g.moveTo(x, y); else g.lineTo(x, y)
+      px = x
+    }
+    g.stroke(); g.setLineDash([])
+  })
+  g.globalAlpha = 1
+}
+function drawVoyages(lt, alpha) {
+  const c = CAM.atlantic
+  g.lineWidth = 1.2
+  for (const v of VOYAGES) {
+    const u = clamp((lt - 0.4 - v.t * 3.4) / 1.6)
+    if (u <= 0) continue
+    g.strokeStyle = v.lost ? 'rgba(92,91,88,0.5)' : 'rgba(239,238,233,0.16)'; g.globalAlpha = alpha; g.beginPath()
+    for (let s = 0; s <= 24; s++) {
+      const uu = (s / 24) * (v.lost ? Math.min(u, 0.55) : u)
+      const [x, y] = proj(c, lerp(v.a[0], v.z[0], easeInOut(uu)), lerp(v.a[1], v.z[1], easeInOut(uu)) + Math.sin(Math.PI * uu) * 6)
+      s ? g.lineTo(x, y) : g.moveTo(x, y)
+    }
+    g.stroke()
+  }
+  g.font = '700 16px JetBrains Mono'; g.textAlign = 'center'; g.fillStyle = 'rgba(239,238,233,0.75)'; g.globalAlpha = alpha
+  for (const [label, lon, lat] of [['AFRICA', 18, 14], ['THE AMERICAS', -62, -2], ['EUROPE', 2, 47], ['ATLANTIC', -35, 22]]) { const [x, y] = proj(c, lon, lat); g.fillText(label, x, y) }
+  g.globalAlpha = 1
+}
+function drawWealth(lt, alpha) {
+  const c = CAM.atlantic
+  const flows = [[[-75, 10], [-6, 43], 'SILVER'], [[-60, 14], [-2, 48], 'SUGAR'], [[-80, 33], [-4, 52], 'COTTON']]
+  flows.forEach(([a, z, label], k) => {
+    const p = easeInOut((lt - 3.2 - k * 0.35) / 1.2)
+    if (p <= 0) return
+    g.strokeStyle = RED; g.globalAlpha = alpha * 0.9; g.lineWidth = 3; g.beginPath()
+    let last
+    for (let s = 0; s <= 40 * p; s++) {
+      const u = s / 40, lon = lerp(a[0], z[0], u), lat = lerp(a[1], z[1], u) + Math.sin(Math.PI * u) * 10
+      const [x, y] = proj(c, lon, lat); s ? g.lineTo(x, y) : g.moveTo(x, y); last = [x, y]
+    }
+    g.stroke()
+    g.fillStyle = RED; g.beginPath(); g.arc(last[0], last[1], 6, 0, 7); g.fill()
+    g.font = '800 20px Inter'; g.textAlign = 'left'; g.fillStyle = RED
+    const [lx, ly] = proj(c, lerp(a[0], z[0], 0.5), lerp(a[1], z[1], 0.5) + 10)
+    g.globalAlpha = alpha * smooth(0.3, 0.8, p); g.fillText(label, lx + 8, ly - 10)
+  })
+  g.globalAlpha = 1
+}
+
+// ---------- DOM text ----------
+const layers = document.getElementById('layers')
+function el(tag, cls, style, parent, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (style) Object.assign(e.style, style); if (html != null) e.innerHTML = html; (parent || layers).appendChild(e); return e }
+function show(e, v, blur = 0, dy = 0) { v = clamp(v); e.style.opacity = v.toFixed(4); e.style.visibility = v < 0.002 ? 'hidden' : 'visible'; const b = (1 - v) * blur; e.style.filter = b > 0.05 ? `blur(${b.toFixed(2)}px)` : 'none'; e.style.transform = dy ? `translateY(${((1 - v) * dy).toFixed(2)}px)` : '' }
+function block(x, y, w, kick, title, sub, align = 'left') {
+  const root = el('div', 'abs', { left: x + 'px', top: y + 'px', width: w + 'px', textAlign: align })
+  const k = el('div', 'mono kick', {}, root, kick)
+  const h = el('div', 'h1', {}, root)
+  const words = title.split(/(?<=\s)/).map((wd) => { const m = el('span', 'mask', { display: 'inline-block', verticalAlign: 'top' }, h); const red = wd.startsWith('*'); return el('span', 'word', { color: red ? RED : '' }, m, wd.replace(/\*/g, '')) })
+  const s = sub ? el('div', 'sub', { marginTop: '24px' }, root, sub) : null
+  return (lt, out) => {
+    const v = 1 - out
+    root.style.visibility = v < 0.002 || lt < -0.1 ? 'hidden' : 'visible'
+    root.style.opacity = v.toFixed(3)
+    root.style.filter = out > 0.01 ? `blur(${(out * 12).toFixed(1)}px)` : 'none'
+    show(k, smooth(0, 0.3, lt), 6, 10)
+    words.forEach((wd, i) => { const p = easeOutExpo((lt - 0.08 - i * 0.06) / 0.55); wd.style.transform = `translateY(${((1 - p) * 105).toFixed(1)}%)` })
+    if (s) show(s, smooth(0.35, 0.85, lt), 8, 14)
+  }
+}
+const TEXT = {
+  divided: block(120, 620, 900, 'c. 1400', 'A small, divided corner of the world.', 'China, India and the Islamic world were richer. Europe was hundreds of rival states, constantly competing and often at war.'),
+  print: block(120, 700, 1100, '1450 · Gutenberg', 'Ideas spread *faster.', 'Around 20 million books were printed in Europe by 1500.'),
+  oceans: block(120, 110, 820, '1492 — 1522', 'The ocean becomes a *highway.', 'Ships, compasses and guns carried Europeans around Africa, to the Americas and around the world.'),
+  americas: block(120, 330, 860, '1492 — 1600', 'A catastrophe in the *Americas.', 'Up to 90% of Indigenous people died, mostly from smallpox and other diseases Europeans brought, and from war and forced labour.'),
+  slavery: block(120, 110, 860, '1500s — 1860s', '12.5 million people, *enslaved.', 'Africans were forced across the Atlantic to work plantations. About 1.8 million died at sea. The profits flowed to Europe.'),
+  science: block(120, 360, 700, '1543 — 1687', 'A new way of *knowing.', 'Copernicus, Galileo, Newton: experiments and mathematics explain how the world works.'),
+  industry: block(120, 150, 1300, '1760 — 1900', 'The Great *Divergence.', 'Coal and steam made Europe the workshop of the world. Share of world manufacturing, 1750 → 1900:'),
+  africa: block(120, 180, 640, '1884 · Berlin Conference', 'Carving up *Africa.', 'European powers divided the continent between them. By 1914 only Ethiopia and Liberia were still independent.'),
+  independence: block(120, 180, 640, '1945 — 1994', 'The empires *fall.', 'After two world wars, colonies won independence: Ghana 1957, seventeen nations in 1960, Algeria 1962. Apartheid ended in 1994.'),
+}
+// chapter extras
+const printMarq = ['PRINTING PRESS · IDEAS · PRINTING PRESS · IDEAS · PRINTING PRESS · IDEAS ·', 'BOOKS · MAPS · SCIENCE · BIBLES · BOOKS · MAPS · SCIENCE · BIBLES · BOOKS ·', 'PRINTING PRESS · IDEAS · PRINTING PRESS · IDEAS · PRINTING PRESS · IDEAS ·']
+  .map((txt, k) => el('div', 'marq', { top: 330 + k * 110 + 'px', background: k === 1 ? RED : BLUE, color: PAPER }, null, txt))
+const routeLabels = ROUTES.map((R) => el('div', 'abs mono', { fontSize: '17px', textShadow: '0 0 8px #000, 0 0 3px #000', color: R.color, fontWeight: 700, whiteSpace: 'nowrap' }, null, `${R.year} · ${R.name}`))
+const amCaption = el('div', 'abs mono', { left: '1150px', top: '850px', fontSize: '14px', color: 'rgba(239,238,233,0.6)', width: '520px' }, null, 'Each dot = 1% of the Americas’ Indigenous population in 1492')
+const amCount = el('div', 'abs', { left: '1150px', top: '230px', fontSize: '44px', fontWeight: 850, letterSpacing: '-1px', whiteSpace: 'nowrap' })
+const indLabels = INDUSTRY.cols.map((n, c) => el('div', 'abs', { left: 300 + c * 400 - 12 + 'px', top: '960px', width: '240px' }, null, `<div class="mono" style="font-size:14px;color:rgba(239,238,233,0.6)">${n}</div><div class="pct" style="font-size:40px;font-weight:850;letter-spacing:-1px"></div>`))
+const indYear = el('div', 'abs', { left: '1500px', top: '420px', fontSize: '120px', fontWeight: 850, letterSpacing: '-5px', color: RED })
+const legend = el('div', 'abs', { left: '120px', top: '560px', width: '640px' }, null, Object.keys(POWER).map((k) => `<span class="legend"><i style="background:${POWER[k]}"></i>${POWER_NAME[k]}</span>`).join('') + '<span class="legend"><i style="background:#3a3936"></i>Independent</span>')
+const bigYear = el('div', 'abs', { left: '120px', top: '690px', fontSize: '150px', fontWeight: 850, letterSpacing: '-6px' })
+const bigStat = el('div', 'abs mono', { left: '124px', top: '860px', fontSize: '16px', color: 'rgba(239,238,233,0.7)', width: '640px', lineHeight: '1.6' })
+const legacyMarq = ['SCIENCE · BORDERS · LANGUAGES · WEALTH · SCIENCE · BORDERS · LANGUAGES ·', 'EMPIRE · INEQUALITY · MEMORY · EMPIRE · INEQUALITY · MEMORY · EMPIRE ·', 'PROGRESS · CONQUEST · PROGRESS · CONQUEST · PROGRESS · CONQUEST ·']
+  .map((txt, k) => el('div', 'marq', { top: 216 + k * 216 + 'px', height: '216px', lineHeight: '216px', fontSize: '150px', letterSpacing: '-6px', background: k === 1 ? RED : k === 0 ? BLUE : PAPER, color: k === 2 ? INK : PAPER }, null, txt))
+const endCard = el('div', 'abs', { left: 0, top: '360px', width: '1920px', textAlign: 'center' }, null,
+  `<div style="font-size:200px;font-weight:900;letter-spacing:-10px;line-height:1">EUROPE<span style="color:${RED}">.</span></div>
+   <div style="font-size:34px;font-weight:600;margin-top:22px;color:rgba(239,238,233,0.85)">It rose by connecting the world, and by conquering much of it.</div>
+   <div class="mono" style="font-size:12px;margin-top:60px;color:rgba(239,238,233,0.4);line-height:2">Sources: Koch et al. 2019 (Americas) · SlaveVoyages.org (Atlantic slave trade) · Bairoch 1982 (manufacturing) · Pakenham, The Scramble for Africa · Febvre &amp; Martin (printing)</div>`)
+
+// ---------- seek ----------
+const flash = document.getElementById('flash')
+function seek(tIn) {
+  const t = clamp(tIn, 0, DUR - 1e-6)
+  g.fillStyle = INK; g.fillRect(0, 0, W, H)
+  const at = (id) => CH.find((c) => c.id === id)
+  const vis = (id, pre = TX, post = 0.35) => { const c = at(id); return smooth(c.t0 - pre, c.t0, t) * (1 - smooth(c.t1 - post, c.t1, t)) }
+  const lt = (id) => t - at(id).t0
+
+  // map layers (cameras glide between chapters)
+  const camFor = (id) => ({ divided: CAM.europe, print: CAM.europe, oceans: CAM.world, americas: CAM.americas, slavery: CAM.atlantic, africa: CAM.africa, independence: CAM.africa })[id]
+  let ci = CH.findIndex((c) => t >= c.t0 && t < c.t1); if (ci < 0) ci = CH.length - 1
+  const cur = CH[ci], nxt = CH[ci + 1]
+  let c = camFor(cur.id) || CAM.world
+  if (nxt && camFor(nxt.id)) c = lerpCam(c, camFor(nxt.id), easeInOut(clamp((t - (nxt.t0 - TX)) / TX)))
+  const landA = Math.max(vis('oceans'), vis('americas'), vis('slavery')) * 0.9 + Math.max(vis('africa'), vis('independence')) * 0.55
+  drawLand(c, landA)
+  const panel = (x, y, w, h, a) => { if (a <= 0) return; const gr = g.createRadialGradient(x + w / 2, y + h / 2, 0, x + w / 2, y + h / 2, w * 0.7); gr.addColorStop(0, `rgba(11,11,12,${0.9 * a})`); gr.addColorStop(1, 'rgba(11,11,12,0)'); g.fillStyle = gr; g.fillRect(x - w * 0.3, y - h * 0.5, w * 1.6, h * 2) }
+  panel(60, 90, 900, 330, vis('oceans')); panel(60, 90, 940, 330, vis('slavery'))
+  if (vis('oceans') > 0) drawRoutes(lt('oceans'), vis('oceans'))
+  if (vis('slavery') > 0) { drawVoyages(lt('slavery'), vis('slavery')); drawWealth(lt('slavery'), vis('slavery')) }
+  // the thin line the first dot bounces on
+  const line = (1 - smooth(1.2, 1.8, t)) * smooth(0.1, 0.5, t)
+  if (line > 0) { g.globalAlpha = line; g.fillStyle = 'rgba(239,238,233,0.5)'; g.fillRect(W / 2 - 240 * line, 569, 480 * line, 1.5); g.globalAlpha = 1 }
+  // science: a sun at the centre of the orbits
+  const sv = vis('science')
+  if (sv > 0) { const gr = g.createRadialGradient(1240, 540, 0, 1240, 540, 90); gr.addColorStop(0, `rgba(255,75,31,${sv})`); gr.addColorStop(0.4, `rgba(255,75,31,${0.5 * sv})`); gr.addColorStop(1, 'rgba(255,75,31,0)'); g.fillStyle = gr; g.fillRect(1100, 400, 280, 280) }
+
+  drawParticles(t)
+
+  // text blocks
+  for (const [id, f] of Object.entries(TEXT)) { const ch = at(id); f(t - ch.t0 - 0.15, smooth(ch.t1 - 0.4, ch.t1 - 0.05, t) + (t < ch.t0 - 0.2 ? 1 : 0)) }
+
+  // printing marquee (appears after the letters, then collapses into the red line of the oceans chapter)
+  const pl = lt('print'), mIn = smooth(bt(4.5), bt(5.2), pl), mOut = smooth(bt(9), bt(10), pl)
+  printMarq.forEach((m, k) => {
+    m.style.visibility = mIn > 0.002 && mOut < 0.998 && t < at('print').t1 + 0.1 ? 'visible' : 'hidden'
+    m.style.transform = `translateX(${((k % 2 ? 1 : -1) * (pl * 160) - (1 - easeOutExpo(mIn)) * (k % 2 ? -1 : 1) * 1400).toFixed(1)}px) scaleY(${(1 - easeInOut(mOut)).toFixed(4)})`
+    m.style.top = lerp(330 + k * 110, 440, easeInOut(mOut)) + 'px'
+  })
+  // route labels at each ship's head
+  const ol = lt('oceans'), ov = vis('oceans')
+  ROUTES.forEach((R, r) => {
+    const head = clamp((ol - 0.5 - r * 0.9) / 3.2), [lon, lat] = routePoint(R, head), [x, y] = proj(CAM.world, lon, lat)
+    show(routeLabels[r], ov * smooth(0, 0.08, head), 4)
+    routeLabels[r].style.left = (x + 16).toFixed(1) + 'px'; routeLabels[r].style.top = (y - 26).toFixed(1) + 'px'
+  })
+  // Americas counter
+  const al = lt('americas'), av = vis('americas')
+  show(amCaption, av * smooth(0.6, 1.0, al), 4); show(amCount, av * smooth(0.5, 0.9, al), 6, 10)
+  const alive = Math.round(lerp(60.5, 6, smooth(1.4, 1.7 + 90 * 0.035, al)) * 10) / 10
+  amCount.innerHTML = `${alive.toFixed(1)} <span style="font-size:22px;font-weight:600;color:rgba(239,238,233,0.6)">million people</span>`
+  // industry labels
+  const il = lt('industry'), iv = vis('industry')
+  const sw = smooth(2.6, 3.8, il)
+  indLabels.forEach((e, k) => { show(e, iv * smooth(0.4 + k * 0.1, 0.8 + k * 0.1, il), 6, 12); e.querySelector('.pct').textContent = Math.round(lerp(INDUSTRY.y1750[k], INDUSTRY.y1900[k], sw)) + '%' })
+  show(indYear, iv * smooth(0.5, 0.9, il), 8); indYear.textContent = sw > 0.5 ? '1900' : '1750'
+  indYear.style.transform = `scale(${(1 + 0.12 * pulse(il - 3.2, 4)).toFixed(3)})`
+  // Africa: year + share under European rule, then independence
+  const fl = lt('africa'), fv = vis('africa'), dl = lt('independence'), dv = vis('independence')
+  show(legend, Math.max(fv, dv) * smooth(0.6, 1.0, Math.max(fl, dl + 10)) * (fl > 0 ? 1 : 0), 6)
+  const yr = dv > 0.01 && t >= at('independence').t0 - 0.2 ? yearIndep(Math.max(0, dl)) : yearAfrica(Math.max(0, fl))
+  show(bigYear, Math.max(fv, dv) * smooth(0.3, 0.7, Math.max(fl, dl + 10)) * (fl > 0 ? 1 : 0), 8)
+  bigYear.textContent = yr
+  let ruled = 0
+  const indep = t >= at('independence').t0 - 0.2
+  for (const d of africaDots) { const [pw, y0, y1] = d.info; if (pw && (indep ? yr < y1 : yr >= y0)) ruled += d.w }
+  const nIndep = Object.values(AFRICA).filter(([pw, , y1]) => !pw || (indep ? yr >= y1 : false)).length
+  bigStat.innerHTML = indep ? `Independent African countries on this map: <b style="color:${PAPER}">${nIndep}</b> of ${Object.keys(AFRICA).length}` : `Share of Africa under European rule: <b style="color:${PAPER}">${Math.round((ruled / AF_W) * 100)}%</b><br>In 1914, Europe and its former colonies covered ~84% of Earth’s land.`
+  show(bigStat, Math.max(fv, dv) * smooth(0.8, 1.2, Math.max(fl, dl + 10)) * (fl > 0 ? 1 : 0), 4)
+  // legacy marquee, then end card
+  const ll = lt('legacy')
+  legacyMarq.forEach((m, k) => {
+    const v = smooth(0.2 + k * 0.08, 0.5 + k * 0.08, ll) * (1 - smooth(bt(5.5), bt(6), ll))
+    m.style.visibility = v > 0.002 ? 'visible' : 'hidden'
+    m.style.transform = `translateX(${((k % 2 ? 1 : -1) * ll * 220 + (1 - easeOutExpo(v)) * (k % 2 ? 1 : -1) * 1500).toFixed(1)}px)`
+  })
+  show(endCard, smooth(bt(6), bt(6.6), ll), 14, 30)
+
+  // HUD
+  document.getElementById('hudChapter').textContent = String(cur.i + 1).padStart(2, '0') + ' / 10 — ' + cur.id
+  document.getElementById('hudYear').textContent = { divided: '1400', print: '1450', oceans: '1492', americas: '1492—1600', slavery: '1500—1866', science: '1543—1687', industry: '1760—1900', africa: String(yr), independence: String(yr), legacy: 'today' }[cur.id]
+  // flash on the chapter hits
+  let fl2 = 0
+  for (const id of ['print', 'industry', 'legacy']) { const d = t - at(id).t0; if (d >= 0) fl2 = Math.max(fl2, Math.exp(-d * 7) * 0.6) }
+  flash.style.opacity = fl2.toFixed(3)
+  document.getElementById('turb').setAttribute('seed', Math.floor(t * 24) % 60)
+}
+
+// ---------- sound cues ----------
+function timeline() {
+  const cues = []
+  CH.forEach((c) => { if (c.i) cues.push({ t: c.t0 - 0.3, kind: 'whoosh' }); cues.push({ t: c.t0 + 0.15, kind: 'hit', chapter: c.id }) })
+  for (let k = 0; k < 3; k++) cues.push({ t: 0.05 + 0.48 * k * Math.exp(-k * 0.2), kind: 'bounce' })
+  cues.push({ t: 1.4, kind: 'bloom' })
+  for (let k = 0; k < 24; k++) cues.push({ t: at0('print') + 0.2 + k * 0.09, kind: 'type' })
+  cues.push({ t: at0('print') + bt(4.5), kind: 'impact' })
+  ROUTES.forEach((_, r) => cues.push({ t: at0('oceans') + 0.5 + r * 0.9, kind: 'horn' }))
+  for (let k = 0; k < 90; k += 6) cues.push({ t: at0('americas') + 1.4 + (89 - k) * 0.035, kind: 'fade' })
+  ;[0, 1, 2].forEach((k) => cues.push({ t: at0('slavery') + 3.2 + k * 0.35, kind: 'coin' }))
+  cues.push({ t: at0('industry') + 2.6, kind: 'shuffle' }); cues.push({ t: at0('industry') + 3.2, kind: 'impact' })
+  for (let y = 1880; y <= 1914; y += 4) cues.push({ t: at0('africa') + 0.8 + ((y - 1870) / 44) * (bt(10) - 0.8), kind: 'tick' })
+  for (let y = 1950; y <= 1994; y += 4) cues.push({ t: at0('independence') + 0.6 + ((y - 1945) / 49) * (bt(9.5) - 0.6), kind: 'tick' })
+  cues.push({ t: at0('legacy') + bt(6), kind: 'end' })
+  return { duration: DUR, bpm: BPM, beat: B, chapters: CH.map((c) => ({ id: c.id, t0: c.t0, t1: c.t1 })), cues: cues.sort((a, c) => a.t - c.t) }
+}
+function at0(id) { return CH.find((c) => c.id === id).t0 }
+
+window.seek = seek
+window.timeline = timeline
+window.configure = () => {}
+if (!window.__RENDER__) {
+  document.body.classList.add('preview')
+  const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth / W, innerHeight / H)); fit(); addEventListener('resize', fit)
+  const params = new URLSearchParams(location.search)
+  document.fonts.ready.then(() => { if (params.has('t')) seek(+params.get('t')); else { const t0 = performance.now(); const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop) }; loop() } })
+}
+</script>
+</body>
+</html>
