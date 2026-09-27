@@ -97,14 +97,14 @@ const TRAY_GAP = 0.3
 
 let wordLetters = [], dotMesh, lensGroup, lensGlass, blades = [], card, cardAfter, chip, sweepLine, fpsSlab, boxLines = [], dots5 = []
 let handGroup, handJoints = [], handBones = [], ring, models = [], trays = [], ruler, rulerTicks = [], band, panels = [], menu, tag, lock, mainPanel
-let portraitTex = {}, landmarks
+let portraitTex = {}, camTex = {}, webcam, pip
 
 async function build() {
   const hdr = await new RGBELoader().loadAsync('assets/hdri/monochrome_studio_02_1k.hdr')
   const pmrem = new THREE.PMREMGenerator(renderer)
   scene.environment = pmrem.fromEquirectangular(hdr).texture
   scene.environmentIntensity = 0.35 // reflections only, at low strength
-  landmarks = await (await fetch('assets/landmarks.json')).json()
+  webcam = await (await fetch('assets/webcam/track.json')).json()
   await document.fonts.load('500 40px Geist')
 
   // wordmark: one extruded mesh per letter, laid out by the font's advances
@@ -145,13 +145,15 @@ async function build() {
   // portrait card: "before" and "after" on the same card, aligned on the eyes; the after is clipped by a sweeping plane
   const tl = new THREE.TextureLoader()
   for (const n of ['before', 'after']) { const t = await tl.loadAsync(`assets/portrait-${n}.jpg`); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; portraitTex[n] = t }
+  // the webcam clip and the avatar mirroring it, streamed frame by frame into two textures (see camFrame / setCamFrame)
+  for (const n of ['before', 'after']) { const t = new THREE.Texture(); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.userData.i = -1; camTex[n] = t }
   card = new THREE.Group(); card.position.copy(CARD); scene.add(card)
   const frame = new THREE.Mesh(new RoundedBoxGeometry(CARD_W + 0.06, CARD_H + 0.06, 0.03, 4, 0.03), new THREE.MeshStandardMaterial({ color: '#1a1a1c', roughness: 0.5 }))
   frame.castShadow = true; frame.receiveShadow = true; card.add(frame)
-  const before = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshStandardMaterial({ map: portraitTex.before, roughness: 0.7 }))
+  const before = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshStandardMaterial({ map: camTex.before, roughness: 0.7 }))
   before.position.z = 0.016; card.add(before)
   window.clipPlane = new THREE.Plane(V(-1, 0, 0), 0)
-  cardAfter = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshStandardMaterial({ map: portraitTex.after, roughness: 0.7, clippingPlanes: [window.clipPlane] }))
+  cardAfter = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshStandardMaterial({ map: camTex.after, roughness: 0.7, clippingPlanes: [window.clipPlane] }))
   cardAfter.position.z = 0.017; card.add(cardAfter)
   renderer.localClippingEnabled = true
   sweepLine = new THREE.Mesh(new THREE.BoxGeometry(0.012, CARD_H + 0.1, 0.03), matPaper); sweepLine.castShadow = true; card.add(sweepLine)
@@ -200,8 +202,12 @@ async function build() {
   band = new THREE.Mesh(new THREE.BufferGeometry(), matPaper); band.castShadow = true; scene.add(band)
 
   // video call: main panel (the card, folded) + five panels that unfold from behind it
-  const pAfter = portraitTex.after
   mainPanel = new THREE.Group(); scene.add(mainPanel)
+  // self-view: the real webcam, small, in the main panel's corner once the virtual camera is live
+  pip = new THREE.Group(); scene.add(pip)
+  const pipFrame = new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.16, 0.01, 3, 0.012), matPaper); pipFrame.castShadow = true
+  const pipImg = new THREE.Mesh(new THREE.PlaneGeometry(0.118, 0.1475), new THREE.MeshStandardMaterial({ map: camTex.before, roughness: 0.7 })); pipImg.position.z = 0.0055
+  pip.add(pipFrame, pipImg)
   const mpBody = new THREE.Mesh(new RoundedBoxGeometry(0.64, 0.4, 0.02, 4, 0.03), new THREE.MeshStandardMaterial({ color: '#232326', roughness: 0.6 })); mpBody.castShadow = true; mainPanel.add(mpBody)
   const tt = await Promise.all([1, 2, 3, 6, 5].map((k) => tl.loadAsync(`assets/turntables/m${k}/00.png`)))
   tt.forEach((t) => (t.colorSpace = THREE.SRGBColorSpace))
@@ -311,6 +317,26 @@ function palmAt(t) {
 }
 
 // ---------- seek ----------
+// webcam clip (30 fps): plays in real time from the iris opening through the face scene, and again for the call
+const camCache = new Map()
+function camFrame(t) {
+  const v = t < 30 * B ? 1.5 + (t - 5.45 * B) : 5.4 + (t - 44 * B)
+  return clamp(Math.round(v * 30), 30, 290) // skips the blinks at both ends of the take
+}
+function camImage(dir, i) {
+  const k = dir + i
+  if (!camCache.has(k)) {
+    const im = new Image(); im.src = `assets/webcam/${dir}/${String(i).padStart(3, '0')}.jpg`
+    camCache.set(k, im.decode().then(() => im))
+    if (camCache.size > 16) camCache.delete(camCache.keys().next().value)
+  }
+  return camCache.get(k)
+}
+async function setCamFrame(i) {
+  const [a, b] = await Promise.all([camImage('before', i), camImage('after', i)])
+  for (const [n, im] of [['before', a], ['after', b]]) if (camTex[n].userData.i !== i) { camTex[n].image = im; camTex[n].userData.i = i; camTex[n].needsUpdate = true }
+}
+
 async function seek(tIn) {
   const t = clamp(tIn, 0, DUR - 1e-6), b = t / B
   // camera
@@ -353,7 +379,9 @@ async function seek(tIn) {
 
   // ----- FACE -----
   card.visible = b > 5 && b < 53
-  const L = landmarks.before
+  const fi = camFrame(t)
+  if (card.visible) await setCamFrame(fi)
+  const L = webcam.frames[fi]
   const cx = (u) => (u - 0.5) * CARD_W, cy = (v) => (0.5 - v) * CARD_H
   const [bx0, by0, bx1, by1] = L.box.map((v, i) => (i % 2 ? cy(v) : cx(v)))
   const corners = [[bx0, by0, 1, -1], [bx1, by0, -1, -1], [bx1, by1, -1, 1], [bx0, by1, 1, 1]] // each corner draws two strokes inward
@@ -365,7 +393,7 @@ async function seek(tIn) {
     h.scale.x = armX * p; h.position.set(x + sx * armX * p / 2, y, 0.03)
     v.scale.x = armY * p; v.rotation.z = Math.PI / 2; v.position.set(x, y + sy * armY * p / 2 * -1, 0.03)
   })
-  L.points.forEach(([u, v], k) => {
+  L.pts.forEach(([u, v], k) => {
     const s = pop((t - (10 + k * 0.18) * B), 3.4) * (1 - smooth(18, 18.4, b))
     dots5[k].visible = s > 0.01; dots5[k].scale.setScalar(Math.max(0.001, s)); dots5[k].position.set(cx(u), cy(v), 0.03)
   })
@@ -505,7 +533,9 @@ async function seek(tIn) {
     tag.visible = tg > 0.01; tag.position.set(CARD.x - PW / 2 + 0.16 - (1 - tg) * 0.2, CARD.y + 0.22 - PH / 2 + 0.06, CARD.z + 0.035)
     const lk = pop(t - 49 * B, 2.4) * (1 - callOut)
     lock.visible = lk > 0.01; lock.position.set(CARD.x, CARD.y - 0.45 + lk * 0.05, CARD.z + 0.1); lock.scale.setScalar(Math.max(0.001, lk))
-  } else { panels.forEach((p) => (p.visible = false)); menu.visible = tag.visible = lock.visible = mainPanel.visible = false; card.scale.set(1, 1, 1); card.position.copy(CARD) }
+    const pv = pop(t - 47.9 * B, 3) * (1 - callOut)
+    pip.visible = pv > 0.01; pip.position.set(CARD.x - 0.237, CARD.y + 0.22 + 0.08, CARD.z + 0.03); pip.scale.setScalar(Math.max(0.001, pv))
+  } else { panels.forEach((p) => (p.visible = false)); menu.visible = tag.visible = lock.visible = mainPanel.visible = pip.visible = false; card.scale.set(1, 1, 1); card.position.copy(CARD) }
   handGroup.visible = b > 10.6 && b < 52.4
 
   renderer.render(scene, camera)
@@ -517,7 +547,33 @@ window.topdown = () => {
   return { pts, marks: { lens: [LENS.x, LENS.z], card: [CARD.x, CARD.z], hand: [HANDSPOT.x, HANDSPOT.z], shelf: [SHELF.x, SHELF.z], word: [DOT_X - 1.4, 0] }, keys: CAMKEYS.map((k) => [k[0], k[1].x, k[1].z]) }
 }
 window.seek = seek
-window.timeline = () => ({ duration: DUR, bpm: BPM, beat: B, cues: [] })
+// sound cues [beat, sample (audio/src/sfx/<name>.wav), gain dB]; tools/mix.py lines each sample's measured peak up with its beat
+const CUES = [
+  [2, 'whoosh_sonicpi_perc_swoosh', -15], [3.7, 'swell_sonicpi_ambi_glass_rub', -17],
+  [4.8, 'snap_tidewater_bail_click_s1', -9], [5.45, 'snap_tidewater_bail_click_s2', -5], [5.9, 'whoosh_sonicpi_ambi_swoosh', -14],
+  ...[8.3, 8.75, 9.2, 9.65].map((b) => [b, 'tick_sonicpi_elec_tick', -17]),
+  ...[0, 1, 2, 3, 4].map((k) => [10 + k * 0.18, 'pop_sonicpi_elec_plip', -15]),
+  [11.1, 'pop_sonicpi_elec_pop', -11], [12.9, 'tick_godot_metronome_quartz_hi', -11], [15.05, 'thud_kenney_removal_a', -11],
+  [15.9, 'whoosh_sonicpi_ambi_swoosh', -10], [15.7, 'pop_sonicpi_elec_blup', -15],
+  ...[16.5, 17.5, 18.5, 19.5].map((b) => [b, 'tick_sonicpi_elec_blip', -17]),
+  [21, 'whoosh_sonicpi_ambi_dark_woosh', -15], [21.05, 'pop_sonicpi_elec_ping', -14],
+  [22.3, 'tick_godot_metronome_quartz_hi', -12], [23.4, 'click_kenney_rotate', -11],
+  [25.3, 'tick_godot_metronome_quartz_hi', -12], [25.8, 'tick_godot_metronome_quartz_hi', -12], [26.1, 'snap_sonicpi_elec_flip', -15],
+  [27, 'tick_sonicpi_elec_blip2', -14], [28, 'swell_sonicpi_ambi_glass_hum', -19],
+  ...[0, 1, 2, 3, 4].map((k) => [27.25 + k, 'click_kenney_toggle', -17]),
+  [32.8, 'whoosh_sonicpi_perc_swash', -15], ...[0, 1, 2, 3, 4, 5].map((k) => [32.7 + k * 0.12, 'click_kenney_placement_' + 'abcdab'[k], -15]),
+  [33.2, 'thud_kenney_platformer_land', -13], [35.9, 'tick_sonicpi_elec_blip', -16],
+  [37.2, 'tick_godot_metronome_quartz_hi', -10], [39.85, 'swell_tps_charge', -14],
+  [40, 'twang_sonicpi_elec_twang', -8], [40, 'boom_sonicpi_bd_boom', -5], [40.02, 'twang_tidewater_line_snap_s1', -11],
+  [41.6, 'tick_godot_metronome_quartz_hi', -12], [42.2, 'whoosh_tidewater_rod_swish_s2', -16], [42.8, 'thud_kenney_removal_c', -13],
+  [42.6, 'pop_sonicpi_elec_pop', -10], [42.6, 'twang_sonicpi_elec_twang', -13],
+  [44.4, 'whoosh_sonicpi_perc_swoosh', -12], ...[0, 1, 2, 3, 4].map((i) => [45.6 + i * 0.22, 'click_kenney_placement_' + 'abcda'[i], -15]),
+  [46.15, 'tick_sonicpi_elec_blip2', -13], [47, 'tick_godot_metronome_quartz_hi', -10], [47.45, 'tick_sonicpi_elec_tick', -10],
+  [47.95, 'pop_sonicpi_elec_plip', -12], [48.1, 'click_kenney_toggle', -12], [49.05, 'pop_sonicpi_elec_blup', -12],
+  [52.4, 'whoosh_sonicpi_ambi_dark_woosh', -12], [52.8, 'snap_tidewater_bail_click_s3', -8], [54, 'snap_tidewater_bail_click_s4', -7],
+  [54.5, 'whoosh_sonicpi_perc_swoosh', -16], [55.3, 'whoosh_sonicpi_ambi_swoosh', -12],
+]
+window.timeline = () => ({ duration: DUR, bpm: BPM, beat: B, cues: CUES.map(([b, name, db]) => ({ t: b * B, name, db })) })
 window.configure = () => {}
 await build()
 window.ready = true

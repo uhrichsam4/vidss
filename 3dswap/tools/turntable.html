@@ -36,5 +36,14 @@ window.portrait = (y, d, w = 960, h = 1200) => {
   cam.position.set(0, y, d); cam.lookAt(0, y, 0); pivot.rotation.y = 0
   renderer.render(scene, cam); const url = canvas.toDataURL('image/png'); renderer.setSize(768, 768, false); return url
 }
+// same portrait, head turned: yaw/pitch/roll (radians) about a point hy on the model's axis, dz behind the pivot
+window.portraitPose = (y, d, yaw, pitch, roll, hy = y, hz = -0.1, w = 640, h = 800) => {
+  renderer.setSize(w, h, false); const cam = new THREE.PerspectiveCamera(24, w / h, 0.01, 100)
+  cam.position.set(0, y, d); cam.lookAt(0, y, 0)
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, roll, 'YXZ')), p = new THREE.Vector3(0, hy, hz)
+  pivot.quaternion.copy(q); pivot.position.copy(p).sub(p.clone().applyQuaternion(q))
+  renderer.render(scene, cam); const url = canvas.toDataURL('image/png')
+  pivot.quaternion.identity(); pivot.position.set(0, 0, 0); renderer.setSize(768, 768, false); return url
+}
 window.ready = true
 </script>

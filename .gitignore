@@ -23,3 +23,12 @@ europe-history/audio/*.wav
 3dswap/tmp/
 3dswap/out/
 3dswap/audio/*.wav
+# personal webcam footage stays local unless the owner OKs pushing it (repo is public)
+3dswap/src/
+3dswap/assets/webcam/before/
+3dswap/assets/webcam/after/
+3dswap/audio/src/**/*_orig.wav
+3dswap/audio/src/music/song02*
+3dswap/audio/src/music/song03*
+3dswap/audio/src/music/*.wav
+3dswap/audio/mix.wav
