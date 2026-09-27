@@ -469,7 +469,7 @@ function buildLive() {
   E.runText = txt('Running 30 fps', { font: FONT.uiS, size: 22, color: '#141416', ax: 'center', order: 32 })
   // the corner card: a second pass in output pixels
   E.corner = new THREE.Group(); ov.add(E.corner); managed.push(E.corner)
-  E.cornerImgs = [0, 1].map(() => { const m = new THREE.Mesh(QUAD, new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true })); E.corner.add(m); return m })
+  E.cornerImgs = [0, 1].map(() => { const m = new THREE.Mesh(QUAD, new THREE.MeshBasicMaterial({ map: E.liveTex[0], toneMapped: false, transparent: true })); E.corner.add(m); return m })  // compiled with a map from the start
   E.cornerFrame = new THREE.Mesh(QUAD, panelMat()); E.cornerFrame.renderOrder = -1; E.corner.add(E.cornerFrame)
   // the hand clip card
   E.clipTex = standIn('your hand clip goes here', 'samples/hand_sample_20260927_003450.mp4', false)
@@ -678,10 +678,10 @@ function liveScene(t, b, cs, lens) {
     const Qc = camera.quaternion, off = V(-bw / 2 + 22, 0, 1).applyQuaternion(Qc)
     e.box.visible = e.t.visible = true; e.box.position.set(x, y, 30); e.box.quaternion.copy(Qc); e.box.set({ w: bw, h: bh }); e.box.scale.setScalar(tiny(s))
     e.t.position.set(x, y, 30).addScaledVector(off, s); e.t.quaternion.copy(Qc); e.t.scale.setScalar(tiny(s)) }
-  qb(0, 57.5, -300, 470); qb(1, 67.5, -300, 470); qb(2, 83.5, -300, 480)
+  qb(0, 57.5, -300, 360); qb(1, 67.5, -300, 360); qb(2, 83.5, -300, 380)
   // breakdown words (the app's own words and the finding)
   if (b >= 72 && b < 76.2) place(E.zero, -740, 440, 30, pop(t, 72, 3))
-  if (b >= 75 && b < 77) { const w = b < 75.9 ? 0 : 1; place(E.appWords[w], -100, 300, 30, pop(t, w ? 75.9 : 75.1, 3)) }
+  if (b >= 75 && b < 77) { const w = b < 75.9 ? 0 : 1; place(E.appWords[w], -700, 330, 30, pop(t, w ? 75.9 : 75.1, 3)) }
   if (b >= 76 && b < 80) place(E.hundred, -740, 440, 30, pop(t, 76, 3))
   if (b >= 91.5 && b < 101) place(E.shelfLab, CARD.x - 600, CARD.y + 520, 30, pop(t, 93.5, 3))
 }
@@ -699,8 +699,11 @@ function cornerCard(t, b, R, k) {
   const [a, c] = E.cornerImgs
   a.visible = true; a.material.map = E.liveTex[n]; a.position.set(lerp(R.w, 0, p), 0, 1); a.scale.set(R.w, R.h, 1)
   if (p < 1 && n > 0) { c.visible = true; c.material.map = E.liveTex[n - 1]; c.position.set(lerp(0, -R.w, p), 0, 0.5); c.scale.set(R.w, R.h, 1) }
-  // clip to the card (drawn with the frame's rounded mask by keeping both inside the frame's width)
-  a.material.opacity = 1
+  // the push stays inside the card: both pictures are clipped to its rectangle (planes in overlay pixels)
+  for (const m of [a, c]) {
+    const pl = m.material.clippingPlanes || (m.material.clippingPlanes = [new THREE.Plane(), new THREE.Plane()])
+    pl[0].set(V(1, 0, 0), -(R.x - R.w / 2)); pl[1].set(V(-1, 0, 0), R.x + R.w / 2)
+  }
 }
 function heldModel(t, b, pose, P, S, deepK) {
   const R = sim.R[pose.i]; if (!R) return
