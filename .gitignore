@@ -32,3 +32,5 @@ europe-history/audio/*.wav
 3dswap/audio/src/music/song03*
 3dswap/audio/src/music/*.wav
 3dswap/audio/mix.wav
+# reference videos downloaded from X (third-party content) stay local
+*/ref/
