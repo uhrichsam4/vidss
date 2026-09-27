@@ -43,3 +43,5 @@ faceswap-film/assets/faces/
 faceswap-film/audio/mix.wav
 faceswap-film/audio/voice/*.wav
 faceswap-film/node_modules/
+faceswap-song/audio/*.wav
+faceswap-song/audio/spec.png
