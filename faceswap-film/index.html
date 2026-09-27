@@ -1094,7 +1094,7 @@ function openBuild(t, b, lens) {
     const s2 = ease((ob - 14.6) / 0.3)
     if (s2 <= 0) swapText(E.bigA, E.bigB, ease((ob - 14) / 0.35), 40); else swapText(E.bigB, E.bigC, s2, 40)
     for (const e of [E.bigLabel, E.bigLabel2]) { e.userData.y0 = y; e.position.x = x - 170; e.position.z = 1 }
-    if (ob > 14) swapText(E.bigLabel, E.bigLabel2, s2, 28); E.bigLabel.clipRect = E.bigLabel.clipRect.map((v, i) => (i % 2 ? v : i ? 10 : -300)); E.bigLabel2.clipRect = E.bigLabel2.clipRect.map((v, i) => (i % 2 ? v : i ? 10 : -300))
+    if (ob > 14) { swapText(E.bigLabel, E.bigLabel2, s2, 28); E.bigLabel.clipRect = E.bigLabel.clipRect.map((v, i) => (i % 2 ? v : i ? 10 : -300)); E.bigLabel2.clipRect = E.bigLabel2.clipRect.map((v, i) => (i % 2 ? v : i ? 10 : -300)) }
   }
   // the last reply: a double-click launcher; the cursor double-clicks it (15.5, 15.75)
   const ls = pop(t, NB(15), 3)
