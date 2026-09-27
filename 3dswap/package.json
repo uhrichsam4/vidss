@@ -1,0 +1,19 @@
+{
+  "name": "3dswap-launch-film",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "still": "node scripts/render.mjs still",
+    "sheet": "node scripts/render.mjs sheet",
+    "cues": "node scripts/render.mjs cues",
+    "audio": "python3 scripts/mix_audio.py",
+    "render": "node scripts/render.mjs full"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  },
+  "dependencies": {
+    "@gltf-transform/cli": "^4.5.0",
+    "three": "^0.170.0"
+  }
+}

@@ -20,3 +20,6 @@ game-clips/clips/*.jpg
 europe-history/tmp/
 europe-history/out/
 europe-history/audio/*.wav
+3dswap/tmp/
+3dswap/out/
+3dswap/audio/*.wav

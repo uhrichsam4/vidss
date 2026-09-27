@@ -1,0 +1,533 @@
+<!doctype html>
+<!--
+  3dswap — launch film. Real 3D (three.js), one continuous camera, 1440x1440, 120 BPM, 56 beats.
+  Every transform, material value and camera position is computed from time inside async seek(t), then rendered once:
+  no animation loop drives state, no timers, no state between frames. Open via tools/serve.mjs (?t=12.5 freezes a frame).
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>3dswap</title>
+<style>
+  @font-face { font-family: 'Geist'; src: url(assets/fonts/geist.woff2) format('woff2'); font-weight: 100 900; font-display: block; }
+  html, body { margin: 0; background: #000; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview canvas { transform: scale(var(--fit, 0.5)); transform-origin: center; }
+  canvas { display: block; }
+</style>
+<script type="importmap">{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
+import { TTFLoader } from 'three/addons/loaders/TTFLoader.js'
+import { Font } from 'three/addons/loaders/FontLoader.js'
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { blend, joints, BONES } from './hand.js'
+
+window.SIZE = [1440, 1440]
+const W = 1440, H = 1440
+const BPM = 120, B = 60 / BPM, BEATS = 56, DUR = BEATS * B
+const APP = '3dswap'
+
+// ---------- math ----------
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x))
+const lerp = (a, c, p) => a + (c - a) * p
+const smooth = (a, c, x) => { const t = clamp((x - a) / (c - a)); return t * t * (3 - 2 * t) }
+const easeInOut = (t) => { t = clamp(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+function S(t, f, z) { if (t <= 0) return 0; const w = 2 * Math.PI * f; if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t)) }
+// a value with many targets = first value + one spring per change (pure function of time). keys: [beat, value, f?, z?]
+function track(keys, f = 2.2, z = 0.9) { const d = keys.slice(1).map((k, i) => [k[0] * B, k[1] - keys[i][1], k[2] || f, k[3] ?? z]); return (t) => d.reduce((v, [tk, dv, ff, zz]) => v + dv * S(t - tk, ff, zz), keys[0][1]) }
+const pop = (t, f = 3.4) => S(t, f, 0.5) // overshooting entrance 0 -> ~1.2 -> 1
+const V = (x, y, z) => new THREE.Vector3(x, y, z)
+
+// ---------- renderer / studio ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, stencil: true })
+renderer.setPixelRatio(1); renderer.setSize(W, H)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap
+document.body.appendChild(renderer.domElement)
+const scene = new THREE.Scene()
+const ROOM = new THREE.Color('#0b0b0c')
+scene.background = ROOM
+const camera = new THREE.PerspectiveCamera(34, 1, 0.02, 60)
+const key = new THREE.DirectionalLight('#fff4e8', 2.4)
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02; key.shadow.radius = 6
+scene.add(key, key.target)
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.55 }))
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor)
+const fill = new THREE.HemisphereLight('#ffffff', '#1a1a1c', 0.25); scene.add(fill)
+
+// ---------- palette & materials ----------
+const PAPER = '#efe9df', ACCENT = '#ff5a1f'
+const matPaper = new THREE.MeshStandardMaterial({ color: PAPER, roughness: 0.55, metalness: 0 })
+const matInk = new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.4, metalness: 0.1 })
+const matAccent = new THREE.MeshStandardMaterial({ color: ACCENT, roughness: 0.35, metalness: 0.05 })
+const matGlass = new THREE.MeshPhysicalMaterial({ color: '#050506', roughness: 0.08, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 0.45, transparent: true, opacity: 0.55, depthWrite: false })
+const matWord = new THREE.MeshStandardMaterial({ color: PAPER, roughness: 0.42, metalness: 0.02 })
+
+// ---------- UI slab with a canvas face (Geist) ----------
+function slab(w, h, draw, { depth = 0.02, radius = 0.03, res = 900, color = PAPER } = {}) {
+  const g = new THREE.Group()
+  const body = new THREE.Mesh(new RoundedBoxGeometry(w, h, depth, 4, Math.min(radius, w / 2, h / 2)), new THREE.MeshStandardMaterial({ color, roughness: 0.6 }))
+  body.castShadow = true; body.receiveShadow = true
+  const cv = document.createElement('canvas'); cv.width = res; cv.height = Math.round(res * h / w)
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.999, h * 0.999), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6 }))
+  face.position.z = depth / 2 + 0.0008
+  g.add(body, face)
+  g.userData = { cv, tex, draw, w, h, last: null }
+  g.redraw = (state) => { const key = JSON.stringify(state); if (key === g.userData.last) return; g.userData.last = key; const c = cv.getContext('2d'); c.clearRect(0, 0, cv.width, cv.height); draw(c, cv.width, cv.height, state); tex.needsUpdate = true }
+  return g
+}
+const font = (px, wt = 500) => `${wt} ${px}px Geist`
+
+// ---------- world layout (metres-ish; models are 1 unit tall) ----------
+const DOT_X = 1.6                     // where the period sits, and where the lens lives
+const LENS = V(DOT_X, 0.62, 0)
+const CARD = V(DOT_X, 1.05, -3.6)     // portrait card
+const CARD_W = 0.8, CARD_H = 1.0
+const HANDSPOT = V(DOT_X + 1.25, 0.95, -3.25)
+const SHELF = V(DOT_X + 2.55, 0, -3.35)
+const TRAY_GAP = 0.3
+
+let wordLetters = [], dotMesh, lensGroup, lensGlass, blades = [], card, cardAfter, chip, sweepLine, fpsSlab, boxLines = [], dots5 = []
+let handGroup, handJoints = [], handBones = [], ring, models = [], trays = [], ruler, rulerTicks = [], band, panels = [], menu, tag, lock, mainPanel
+let portraitTex = {}, landmarks
+
+async function build() {
+  const hdr = await new RGBELoader().loadAsync('assets/hdri/monochrome_studio_02_1k.hdr')
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  scene.environment = pmrem.fromEquirectangular(hdr).texture
+  scene.environmentIntensity = 0.35 // reflections only, at low strength
+  landmarks = await (await fetch('assets/landmarks.json')).json()
+  await document.fonts.load('500 40px Geist')
+
+  // wordmark: one extruded mesh per letter, laid out by the font's advances
+  const ttf = await new TTFLoader().loadAsync('assets/fonts/archivo-125-800.ttf')
+  const f = new Font(ttf)
+  const size = 0.42, depth = 0.05
+  const glyphs = [...APP, '.']
+  const adv = glyphs.map((ch) => (f.data.glyphs[ch]?.ha || 600) / f.data.resolution * size)
+  const total = adv.reduce((a, c) => a + c, 0)
+  let x = DOT_X - total + adv[adv.length - 1] * 0.5
+  glyphs.forEach((ch, i) => {
+    const geo = new TextGeometry(ch, { font: f, size, depth, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.004, bevelSegments: 3 })
+    geo.computeBoundingBox(); const bb = geo.boundingBox
+    geo.translate(-(bb.min.x + bb.max.x) / 2, 0, -depth / 2)
+    const m = new THREE.Mesh(geo, ch === '.' ? matWord.clone() : matWord)
+    m.castShadow = true; m.receiveShadow = true
+    const cx = x + adv[i] / 2
+    m.userData = { x0: cx, w: adv[i] }
+    scene.add(m); wordLetters.push(m); x += adv[i]
+  })
+  dotMesh = wordLetters[wordLetters.length - 1]
+  wordLetters.forEach((m) => { m.userData.x0 += DOT_X - dotMesh.userData.x0 }) // exact: the dot sits at DOT_X
+
+  // lens: black glass disc + rim, and six iris blades clipped to the aperture by the stencil
+  lensGroup = new THREE.Group(); lensGroup.position.copy(LENS); scene.add(lensGroup)
+  lensGlass = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.08, 96), matGlass)
+  lensGlass.rotation.x = Math.PI / 2; lensGlass.castShadow = true; lensGlass.renderOrder = 3; lensGroup.add(lensGlass)
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(1.02, 0.04, 16, 128), matInk); lensGroup.add(rim); lensGroup.userData.rim = rim
+  const mask = new THREE.Mesh(new THREE.CircleGeometry(0.985, 96), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, stencilWrite: true, stencilRef: 1, stencilZPass: THREE.ReplaceStencilOp }))
+  mask.position.z = -0.045; mask.renderOrder = 1; lensGroup.add(mask)
+  for (let k = 0; k < 6; k++) {
+    const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(2.2, 0); sh.lineTo(2.2, 1.6); sh.lineTo(0.35, 1.6); sh.closePath()
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.01, bevelEnabled: false })
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: '#08080a', roughness: 0.7, metalness: 0.2, stencilWrite: true, stencilRef: 1, stencilFunc: THREE.EqualStencilFunc }))
+    m.renderOrder = 2; lensGroup.add(m); blades.push(m)
+  }
+
+  // portrait card: "before" and "after" on the same card, aligned on the eyes; the after is clipped by a sweeping plane
+  const tl = new THREE.TextureLoader()
+  for (const n of ['before', 'after']) { const t = await tl.loadAsync(`assets/portrait-${n}.jpg`); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; portraitTex[n] = t }
+  card = new THREE.Group(); card.position.copy(CARD); scene.add(card)
+  const frame = new THREE.Mesh(new RoundedBoxGeometry(CARD_W + 0.06, CARD_H + 0.06, 0.03, 4, 0.03), new THREE.MeshStandardMaterial({ color: '#1a1a1c', roughness: 0.5 }))
+  frame.castShadow = true; frame.receiveShadow = true; card.add(frame)
+  const before = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshStandardMaterial({ map: portraitTex.before, roughness: 0.7 }))
+  before.position.z = 0.016; card.add(before)
+  window.clipPlane = new THREE.Plane(V(-1, 0, 0), 0)
+  cardAfter = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshStandardMaterial({ map: portraitTex.after, roughness: 0.7, clippingPlanes: [window.clipPlane] }))
+  cardAfter.position.z = 0.017; card.add(cardAfter)
+  renderer.localClippingEnabled = true
+  sweepLine = new THREE.Mesh(new THREE.BoxGeometry(0.012, CARD_H + 0.1, 0.03), matPaper); sweepLine.castShadow = true; card.add(sweepLine)
+  // face box (4 corners, each two strokes) and five landmark dots
+  for (let k = 0; k < 8; k++) { const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.008, 0.008), matPaper); card.add(m); boxLines.push(m) }
+  for (let k = 0; k < 5; k++) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.018, 24, 16), matPaper); m.castShadow = true; card.add(m); dots5.push(m) }
+  // photo chip that rises from the floor
+  chip = new THREE.Group()
+  const chipBody = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.3, 0.012, 3, 0.02), matPaper); chipBody.castShadow = true
+  const chipImg = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.262), new THREE.MeshStandardMaterial({ map: portraitTex.after, roughness: 0.7 })); chipImg.position.z = 0.007
+  chip.add(chipBody, chipImg); scene.add(chip)
+  fpsSlab = slab(0.42, 0.2, (c, w, h, s) => {
+    c.fillStyle = '#1b1a18'; c.font = font(h * 0.34, 650); c.textBaseline = 'alphabetic'; c.fillText(`${s.fps}`, w * 0.08, h * 0.5)
+    c.font = font(h * 0.14, 500); c.fillStyle = '#6d6a64'; c.fillText('FPS · real time', w * 0.08 + c.measureText('000').width * 2.2, h * 0.46)
+    c.fillStyle = '#d8d1c5'; c.fillRect(w * 0.08, h * 0.66, w * 0.84, h * 0.07)
+    c.fillStyle = '#1b1a18'; c.fillRect(w * 0.08, h * 0.66, w * 0.84 * s.bar, h * 0.07)
+  })
+  scene.add(fpsSlab)
+
+  // hand: spheres for joints, rounded bones between them; accent colour is used only here
+  handGroup = new THREE.Group(); scene.add(handGroup)
+  for (let i = 0; i < 21; i++) { const m = new THREE.Mesh(new THREE.SphereGeometry(i === 0 ? 0.026 : 0.019, 20, 14), matAccent); m.castShadow = true; m.receiveShadow = true; handGroup.add(m); handJoints.push(m) }
+  for (const _ of BONES) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 1, 12, 1, false), matAccent); m.castShadow = true; m.receiveShadow = true; handGroup.add(m); handBones.push(m) }
+  ring = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.004, 8, 64), matPaper); scene.add(ring)
+
+  // models: centred on their bounding box, scaled to a height of 1
+  const loader = new GLTFLoader()
+  for (let k = 1; k <= 6; k++) {
+    const gltf = await loader.loadAsync(`assets/models/m${k}.glb`)
+    const obj = gltf.scene
+    obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; if (o.material.map) o.material.map.colorSpace = THREE.SRGBColorSpace } })
+    const box = new THREE.Box3().setFromObject(obj), sz = box.getSize(V()), c = box.getCenter(V())
+    const s = 1 / sz.y
+    const inner = new THREE.Group(); inner.add(obj); obj.scale.setScalar(s); obj.position.set(-c.x * s, -box.min.y * s, -c.z * s) // pivot = centre, feet at 0
+    const outer = new THREE.Group(); outer.add(inner); scene.add(outer)
+    models.push({ outer, inner })
+  }
+  // trays (shelf), ruler, band
+  for (let k = 0; k < 6; k++) {
+    const t = new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.05, 0.34, 4, 0.02), matPaper); t.castShadow = true; t.receiveShadow = true
+    const ghost = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.003, 6, 48), new THREE.MeshStandardMaterial({ color: '#8c877e' })); ghost.rotation.x = Math.PI / 2; ghost.position.y = 0.03; t.add(ghost); t.userData.ghost = ghost
+    scene.add(t); trays.push(t)
+  }
+  ruler = new THREE.Mesh(new RoundedBoxGeometry(0.05, 1, 0.05, 3, 0.012), matPaper); ruler.castShadow = true; scene.add(ruler)
+  for (let k = 0; k < 6; k++) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.006, 0.055), matInk); scene.add(m); rulerTicks.push(m) }
+  band = new THREE.Mesh(new THREE.BufferGeometry(), matPaper); band.castShadow = true; scene.add(band)
+
+  // video call: main panel (the card, folded) + five panels that unfold from behind it
+  const pAfter = portraitTex.after
+  mainPanel = new THREE.Group(); scene.add(mainPanel)
+  const mpBody = new THREE.Mesh(new RoundedBoxGeometry(0.64, 0.4, 0.02, 4, 0.03), new THREE.MeshStandardMaterial({ color: '#232326', roughness: 0.6 })); mpBody.castShadow = true; mainPanel.add(mpBody)
+  const tt = await Promise.all([1, 2, 3, 6, 5].map((k) => tl.loadAsync(`assets/turntables/m${k}/00.png`)))
+  tt.forEach((t) => (t.colorSpace = THREE.SRGBColorSpace))
+  for (let k = 0; k < 5; k++) {
+    const g = new THREE.Group()
+    const body = new THREE.Mesh(new RoundedBoxGeometry(0.64, 0.4, 0.02, 4, 0.03), new THREE.MeshStandardMaterial({ color: '#232326', roughness: 0.6 })); body.castShadow = true
+    const img = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshStandardMaterial({ map: tt[k], transparent: true, roughness: 0.7 }))
+    img.position.z = 0.011; img.material.map.repeat.set(0.5, 0.5); img.material.map.offset.set(0.25, 0.47)
+    g.add(body, img); scene.add(g); panels.push(g)
+  }
+  menu = slab(0.64, 0.36, (c, w, h, s) => {
+    const items = ['FaceTime HD Camera', 'Virtual camera · 3dswap', 'iPhone Camera']
+    c.font = font(h * 0.07, 600); c.fillStyle = '#8b867d'; c.fillText('CAMERA', w * 0.07, h * 0.16)
+    items.forEach((it, i) => {
+      const y = h * (0.34 + i * 0.22)
+      if (i === 1 && s.hl > 0) { c.fillStyle = `rgba(27,26,24,${0.08 * s.hl})`; c.beginPath(); c.roundRect(w * 0.04, y - h * 0.12, w * 0.92, h * 0.19, h * 0.05); c.fill() }
+      c.font = font(h * 0.085, i === 1 ? 650 : 500); c.fillStyle = '#1b1a18'; c.fillText(it, w * 0.16, y)
+      if (i === 1 && s.tick > 0) { c.strokeStyle = '#1b1a18'; c.lineWidth = h * 0.022; c.lineCap = 'round'; c.beginPath(); const x0 = w * 0.07, y0 = y - h * 0.03; const pts = [[x0, y0], [x0 + h * 0.035, y0 + h * 0.035], [x0 + h * 0.1, y0 - h * 0.05]]; const L1 = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]), L2 = Math.hypot(pts[2][0] - pts[1][0], pts[2][1] - pts[1][1]); const d = s.tick * (L1 + L2); c.moveTo(...pts[0]); if (d <= L1) c.lineTo(pts[0][0] + (pts[1][0] - pts[0][0]) * d / L1, pts[0][1] + (pts[1][1] - pts[0][1]) * d / L1); else { c.lineTo(...pts[1]); const e = (d - L1) / L2; c.lineTo(pts[1][0] + (pts[2][0] - pts[1][0]) * e, pts[1][1] + (pts[2][1] - pts[1][1]) * e) } c.stroke() }
+    })
+  }, { radius: 0.035 })
+  scene.add(menu)
+  tag = slab(0.26, 0.07, (c, w, h) => { c.fillStyle = '#1b1a18'; c.font = font(h * 0.46, 650); c.fillText('✦ AI effect', w * 0.1, h * 0.66) }, { radius: 0.035, res: 520 })
+  scene.add(tag)
+  lock = slab(0.76, 0.09, (c, w, h) => { c.fillStyle = '#1b1a18'; c.font = font(h * 0.38, 600); c.fillText('Runs on your Mac. Nothing uploaded.', w * 0.13, h * 0.64); c.lineWidth = h * 0.06; c.strokeStyle = '#1b1a18'; c.strokeRect(w * 0.045, h * 0.42, h * 0.32, h * 0.3); c.beginPath(); c.arc(w * 0.045 + h * 0.16, h * 0.42, h * 0.11, Math.PI, 0); c.stroke() }, { radius: 0.045, res: 900 })
+  scene.add(lock)
+}
+
+// ---------- camera path: Catmull-Rom through key positions & targets, eased per section ----------
+// [beat, position, target, fov]
+const CAMKEYS = [
+  [0, V(-0.15, 1.05, 5.6), V(-0.15, 0.3, 0), 34],
+  [3, V(0.9, 0.85, 3.2), V(1.1, 0.4, 0), 34],
+  [4.4, V(DOT_X, 0.64, 2.5), V(DOT_X, 0.62, 0), 34],
+  [5.3, V(DOT_X, 0.62, 1.8), V(DOT_X, 0.62, -1), 34],       // the lens fills the square, rim just inside
+  [6.4, V(DOT_X, 0.8, -0.6), V(DOT_X, 0.98, -3.6), 32],     // through the open iris
+  [9, V(DOT_X + 0.1, 1.02, -1.25), V(DOT_X + 0.1, 1.0, -3.6), 32],    // portrait card framed
+  [16, V(DOT_X + 0.22, 1.02, -1.3), V(DOT_X + 0.22, 0.98, -3.6), 32],
+  [20, V(DOT_X + 0.5, 1.1, -2.05), V(DOT_X + 0.7, 1.0, -3.4), 33],
+  [22, V(HANDSPOT.x - 0.35, 1.85, HANDSPOT.z + 1.2), V(HANDSPOT.x + 0.1, 1.12, HANDSPOT.z), 34], // swung round, looking down at the palm
+  [30, V(HANDSPOT.x - 0.35, 2.05, HANDSPOT.z + 1.45), V(HANDSPOT.x + 0.15, 1.35, HANDSPOT.z), 36],
+  [34, V(SHELF.x - 0.55, 1.15, -0.55), V(SHELF.x - 0.5, 1.05, SHELF.z), 38],  // pulled back: all six trays
+  [44, V(SHELF.x - 0.6, 1.15, -0.5), V(SHELF.x - 0.55, 1.05, SHELF.z), 38],
+  [46, V(DOT_X + 0.18, 1.12, -0.95), V(DOT_X + 0.18, 1.02, -3.6), 34],        // the call grid
+  [52, V(DOT_X + 0.18, 1.12, -1.0), V(DOT_X + 0.18, 1.02, -3.6), 34],
+  [53.4, V(DOT_X, 0.64, 0.4), V(DOT_X, 0.62, 3), 34],       // back through the lens
+  [54.6, V(0.9, 0.85, 3.2), V(1.1, 0.4, 0), 34],
+  [56, V(-0.15, 1.05, 5.6), V(-0.15, 0.3, 0), 34],
+]
+const posCurve = new THREE.CatmullRomCurve3(CAMKEYS.map((k) => k[1]), false, 'centripetal')
+const tgtCurve = new THREE.CatmullRomCurve3(CAMKEYS.map((k) => k[2]), false, 'centripetal')
+function camAt(t) {
+  const b = t / B
+  let i = CAMKEYS.findIndex((k, j) => j < CAMKEYS.length - 1 && b >= k[0] && b < CAMKEYS[j + 1][0]); if (i < 0) i = CAMKEYS.length - 2
+  const a = CAMKEYS[i], c = CAMKEYS[i + 1]
+  const e = easeInOut((b - a[0]) / (c[0] - a[0]))
+  const u = (i + e) / (CAMKEYS.length - 1)
+  return { pos: posCurve.getPoint(u), tgt: tgtCurve.getPoint(u), fov: lerp(a[3], c[3], e) }
+}
+
+// ---------- hand choreography: pose weights + placement per beat ----------
+const handKeys = {
+  // position (world), yaw/pitch/roll (deg) of the hand frame, pose name
+  pos: [[0, V(DOT_X + 1.4, 0.6, -2.6)], [11.5, V(DOT_X + 0.66, 0.42, -3.0)], [13, V(DOT_X + 0.5, 0.4, -3.0)], [14.6, V(DOT_X + 0.02, 0.78, -3.28)], [16, V(DOT_X + 0.45, 0.62, -3.1)], [18.5, V(DOT_X + 0.12, 0.55, -2.9)],
+    [21, V(HANDSPOT.x, HANDSPOT.y, HANDSPOT.z)], [22.4, V(HANDSPOT.x, HANDSPOT.y, HANDSPOT.z)], [24.5, V(HANDSPOT.x + 0.4, HANDSPOT.y, HANDSPOT.z)], [25, V(HANDSPOT.x + 0.1, HANDSPOT.y, HANDSPOT.z)],
+    [27.2, V(HANDSPOT.x + 0.1, HANDSPOT.y, HANDSPOT.z)], [30, V(HANDSPOT.x + 0.1, HANDSPOT.y + 0.35, HANDSPOT.z)],
+    [35.5, V(SHELF.x - 0.62, 1.1, SHELF.z + 0.35)], [37, V(SHELF.x - 0.42, 1.12, SHELF.z + 0.2)], [40, V(SHELF.x - 1.12, 1.18, SHELF.z + 0.5)], [41.5, V(SHELF.x - 0.45, 1.55, SHELF.z + 0.22)], [42.6, V(SHELF.x - 1.05, 1.5, SHELF.z + 0.5)],
+    [45.5, V(DOT_X + 0.62, 0.72, -3.4)], [46.1, V(DOT_X + 0.5, 1.13, -3.42)], [49, V(DOT_X + 0.6, 0.62, -3.35)], [52, V(DOT_X + 1.1, 0.7, -3.1)]],
+  rot: [[0, [0, 0, 25]], [11.5, [-15, 10, 20]], [14, [0, 0, 10]], [18.5, [0, 0, 8]], [20.5, [0, 0, 8]], [21.2, [90, 180, 0]], [31.5, [90, 180, 0]], [34.5, [0, 0, -70]], [44.5, [0, 0, -70]], [45.5, [0, 0, 12]]],
+  pose: [[0, 'release'], [11.8, 'reach'], [12.9, 'pinch'], [15, 'release'], [18.4, 'open'], [21, 'open'], [22.3, 'pinch'], [24.8, 'release'], [25.3, 'pinch'], [25.55, 'release'], [25.8, 'pinch'], [26.05, 'release'], [27, 'three'],
+    [30.5, 'open'], [35.8, 'reach'], [37.2, 'pinch'], [40, 'open'], [41.6, 'pinch'], [42.6, 'open'], [46.4, 'reach'], [47, 'pinch'], [47.5, 'release'], [52, 'release']],
+}
+const POSE_T = 0.22 // seconds to blend between poses
+function handState(t) {
+  const b = t / B
+  const seg = (arr) => { let i = 0; while (i < arr.length - 1 && b >= arr[i + 1][0]) i++; return i }
+  // position & rotation: spring towards each key (sum of steps), pose: blend with the previous key
+  const px = track(handKeys.pos.map(([k, v]) => [k, v.x], 1.6, 0.85)), py = track(handKeys.pos.map(([k, v]) => [k, v.y]), 1.6, 0.85), pz = track(handKeys.pos.map(([k, v]) => [k, v.z]), 1.6, 0.85)
+  const i = seg(handKeys.rot), r0 = handKeys.rot[i], r1 = handKeys.rot[Math.min(i + 1, handKeys.rot.length - 1)]
+  const ri = easeInOut((b - r0[0]) / Math.max(0.01, (r1[0] - r0[0])) * 1.6)
+  const qa = new THREE.Quaternion().setFromEuler(new THREE.Euler(...r0[1].map((d) => d * Math.PI / 180), 'YXZ'))
+  const qb = new THREE.Quaternion().setFromEuler(new THREE.Euler(...r1[1].map((d) => d * Math.PI / 180), 'YXZ'))
+  const p = seg(handKeys.pose), cur = handKeys.pose[p], prev = handKeys.pose[Math.max(0, p - 1)]
+  const w = easeInOut((t - cur[0] * B) / POSE_T)
+  return { pos: V(px(t), py(t), pz(t)), quat: qa.slerp(qb, clamp(ri)), pose: blend([[prev[1], 1 - w], [cur[1], w]]) }
+}
+const handScale = track([[0, 0.8], [20.5, 0.72, 1.4, 1], [33.5, 0.62, 1.4, 1], [44.8, 0.42, 1.4, 1]])
+function placeHand(t) {
+  const hs = handState(t)
+  handGroup.position.copy(hs.pos); handGroup.quaternion.copy(hs.quat); handGroup.scale.setScalar(handScale(t))
+  const J = joints(hs.pose)
+  J.forEach((p, i) => handJoints[i].position.copy(p))
+  BONES.forEach(([a, c], k) => {
+    const pa = J[a], pc = J[c], m = handBones[k], d = pc.clone().sub(pa), len = d.length()
+    m.position.copy(pa).addScaledVector(d, 0.5); m.scale.set(1, len, 1)
+    m.quaternion.setFromUnitVectors(V(0, 1, 0), d.normalize())
+  })
+  handGroup.updateMatrixWorld(true)
+  const tipT = handJoints[4].getWorldPosition(V()), tipI = handJoints[8].getWorldPosition(V()), tipM = handJoints[12].getWorldPosition(V())
+  return { tipT, tipI, tipM, gap: tipT.distanceTo(tipI), gap3: Math.max(tipT.distanceTo(tipI), tipT.distanceTo(tipM)), pinchAt: tipT.clone().add(tipI).multiplyScalar(0.5), palm: handJoints[9].getWorldPosition(V()).add(handJoints[0].getWorldPosition(V())).multiplyScalar(0.5) }
+}
+
+// palm centre in world space at time t (pure: rebuilds the hand transform without touching the scene)
+function palmAt(t) {
+  const hs = handState(t), J = joints(hs.pose)
+  const local = J[0].clone().add(J[9]).multiplyScalar(0.5).add(J[5]).add(J[17]).multiplyScalar(0.5)
+  return local.multiplyScalar(handScale(t)).applyQuaternion(hs.quat).add(hs.pos)
+}
+
+// ---------- seek ----------
+async function seek(tIn) {
+  const t = clamp(tIn, 0, DUR - 1e-6), b = t / B
+  // camera
+  const c = camAt(t)
+  camera.position.copy(c.pos); camera.lookAt(c.tgt); camera.fov = c.fov; camera.updateProjectionMatrix()
+  // key light & tight shadow camera follow the action
+  const focus = c.tgt
+  key.position.set(focus.x + 1.8, 4.2, focus.z + 2.6); key.target.position.copy(focus)
+  const sc = key.shadow.camera; sc.left = -2.2; sc.right = 2.2; sc.top = 2.2; sc.bottom = -2.2; sc.near = 0.5; sc.far = 9; sc.updateProjectionMatrix()
+
+  // ----- OPEN: wordmark squeezes into its period (and springs back out at the close) -----
+  // every letter moves toward the dot by the same factor: accordion in over beats 1..3, springs back out at 55 (lands on 56)
+  const squeeze = b < 50 ? 1 - easeInOut((b - 1) / 2) : track([[0, 0], [55, 1, 2.2, 0.62]])(t - 0)
+  wordLetters.forEach((m, i) => {
+    const isDot = i === wordLetters.length - 1
+    const f = Math.max(0, squeeze)
+    m.position.set(DOT_X + (m.userData.x0 - DOT_X) * f, 0, 0)
+    m.scale.set(isDot ? 1 : Math.max(0.001, f), 1, 1) // drawn width follows, so the letters stay touching
+    m.visible = isDot || f > 0.002
+  })
+  // dot -> lens (swell 3..4, shrink back 54..55)
+  const lensS = track([[0, 0], [3, 1, 2.0, 0.8], [54.2, 0, 2.6, 0.95]])(t)
+  const dotR = 0.045
+  const lr = lerp(dotR, 0.5, clamp(lensS, 0, 1.2))
+  dotMesh.visible = lensS < 0.02
+  lensGroup.visible = lensS >= 0.02 && b < 44
+  lensGroup.scale.setScalar(lr)
+  lensGroup.position.set(DOT_X, lerp(0.04, LENS.y, clamp(lensS * 1.4)), 0)
+  // iris: close at 5, snap open at 5.5; close again at 53, open at 54 (the room goes black for a beat)
+  const irisOpen = track([[0, 1], [4.8, 0, 3.2, 1], [5.45, 1, 4.2, 0.72], [52.8, 0, 3.2, 1], [54, 1, 4.2, 0.9]])(t)
+  const ap = lerp(0.0, 1.05, clamp(irisOpen, 0, 1.1)) // hexagon inradius in lens units
+  blades.forEach((m, k) => {
+    const th = (k / 6) * Math.PI * 2
+    m.position.set(Math.cos(th) * ap, Math.sin(th) * ap, -0.03 - k * 0.0004)
+    m.rotation.set(0, 0, th + Math.PI / 2 + 0.52 * (1 - clamp(irisOpen)))
+    m.visible = irisOpen < 0.995
+  })
+  lensGlass.visible = !(b > 5.3 && b < 52.9) // hidden only while fully covered by the blades
+  lensGroup.userData.rim.visible = true
+
+  // ----- FACE -----
+  card.visible = b > 5 && b < 53
+  const L = landmarks.before
+  const cx = (u) => (u - 0.5) * CARD_W, cy = (v) => (0.5 - v) * CARD_H
+  const [bx0, by0, bx1, by1] = L.box.map((v, i) => (i % 2 ? cy(v) : cx(v)))
+  const corners = [[bx0, by0, 1, -1], [bx1, by0, -1, -1], [bx1, by1, -1, 1], [bx0, by1, 1, 1]] // each corner draws two strokes inward
+  const armX = (bx1 - bx0) * 0.28, armY = (by0 - by1) * 0.22
+  corners.forEach(([x, y, sx, sy], k) => {
+    const p = smooth(8 + k * 0.45, 8.6 + k * 0.45, b) * (1 - smooth(18, 18.4, b))
+    const h = boxLines[k * 2], v = boxLines[k * 2 + 1]
+    h.visible = v.visible = p > 0.002
+    h.scale.x = armX * p; h.position.set(x + sx * armX * p / 2, y, 0.03)
+    v.scale.x = armY * p; v.rotation.z = Math.PI / 2; v.position.set(x, y + sy * armY * p / 2 * -1, 0.03)
+  })
+  L.points.forEach(([u, v], k) => {
+    const s = pop((t - (10 + k * 0.18) * B), 3.4) * (1 - smooth(18, 18.4, b))
+    dots5[k].visible = s > 0.01; dots5[k].scale.setScalar(Math.max(0.001, s)); dots5[k].position.set(cx(u), cy(v), 0.03)
+  })
+  // chip: rises at 11, carried 13..15, lands and becomes the sweep line
+  const hand = placeHand(t)
+  const chipRise = pop(t - 11 * B, 2.2)
+  const carried = b >= 12.95 && b < 15
+  const chipHome = V(DOT_X + 0.5, lerp(-0.2, 0.58, clamp(chipRise, 0, 1.1)), -3.1)
+  chip.visible = b > 10.9 && b < 15.3
+  if (carried) { chip.position.copy(hand.pinchAt).add(V(0, -0.17, 0)); chip.rotation.set(0, -0.2, 0.05) } else if (b < 13) { chip.position.copy(chipHome); chip.rotation.set(0, -0.35, 0) }
+  else { const k = smooth(15, 15.3, b); chip.position.lerpVectors(chip.position, V(CARD.x - CARD_W / 2, CARD.y, CARD.z + 0.03), k); chip.scale.set(lerp(1, 0.05, k), lerp(1, 3.4, k), 1) }
+  // sweep 15.3..16.5: the after portrait is revealed by a clipping plane, not opacity
+  const sw = easeInOut((b - 15.3) / 1.2)
+  const sx = lerp(-CARD_W / 2, CARD_W / 2, sw)
+  sweepLine.visible = b > 15.25 && b < 16.6; sweepLine.position.set(sx, 0, 0.025)
+  card.updateMatrixWorld(true)
+  const worldX = card.localToWorld(V(sx, 0, 0)).x
+  window.clipPlane.set(V(-1, 0, 0), worldX) // keep x < worldX
+  cardAfter.visible = b > 15.25
+  // fps counter 6 -> 30, a bar grows (16..19)
+  const fps = [6, 12, 18, 24, 30][clamp(Math.floor(b - 15.5), 0, 4)]
+  const fpsIn = pop(t - 15.6 * B, 2.6) * (1 - smooth(20, 20.3, b))
+  fpsSlab.visible = fpsIn > 0.01 && b < 20.5
+  fpsSlab.position.set(CARD.x + CARD_W / 2 + 0.3, CARD.y - 0.32, CARD.z + 0.05); fpsSlab.scale.setScalar(Math.max(0.001, fpsIn)); fpsSlab.rotation.y = -0.18
+  fpsSlab.redraw({ fps, bar: Math.round(smooth(15.8, 19.4, b) * 100) / 100 })
+
+  // ----- HAND: model pops above the palm, turns with the drag, faces camera, grows with a ruler -----
+  const ringP = smooth(0.05, 0.02, hand.gap) * (b > 20 && b < 44 ? 1 : b > 12.5 && b < 15 ? 1 : b > 46.5 && b < 48 ? 1 : 0)
+  const pulse2 = [25.3, 25.8].reduce((a, pb) => a + Math.exp(-Math.max(0, t - pb * B) * 12) * (b >= pb ? 1 : 0), 0)
+  ring.visible = ringP > 0.02
+  ring.position.copy(hand.pinchAt); ring.quaternion.copy(camera.quaternion)
+  ring.scale.setScalar((0.6 + 0.4 * ringP) * (1 + 0.5 * pulse2))
+  // model 0 in the palm
+  const m0 = models[0]
+  const popIn = pop(t - 21 * B, 3.0)
+  const grow = track([[0, 1], [27.2, 1.9, 1.6, 0.8]])(t)
+  const drag = clamp(((track(handKeys.pos.map(([k, v]) => [k, v.x]), 1.6, 0.85)(t)) - HANDSPOT.x) / 0.4, -1, 1.2)
+  const turnDrag = b >= 22.3 && b < 24.8 ? drag : b >= 24.8 ? 1 : 0 // half the frame width = one full turn
+  const yaw = turnDrag * Math.PI * 2 + 0.6
+  const faceCam = smooth(25.8, 25.8 + 0.5, b) // two pinches -> slerp to identity the short way (0.25s)
+  const q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), yaw).slerp(new THREE.Quaternion(), faceCam)
+  const modelAnchor = palmAt(21.4 * B).add(V(0, 0.07, 0))
+  // --- SHELF ---
+  const shelfT = b - 32
+  const trayPos = (k) => V(SHELF.x, 0.3 + k * TRAY_GAP, SHELF.z)
+  const split = smooth(32.4, 34, b)
+  const pickK = 2, pick2 = 4
+  const lift = smooth(35.8, 36.6, b) * (1 - smooth(44, 44.5, b))
+  const gripped = b >= 37.2 && b < 40
+  const pullV = hand.pinchAt.clone().sub(trayPos(pickK).add(V(0, 0.32, 0.08)))
+  const pullTrays = pullV.length() / 0.46
+  const released = b >= 40
+  models.forEach((m, k) => {
+    const o = m.outer, inner = m.inner
+    o.visible = false; inner.scale.set(1, 1, 1); inner.quaternion.identity()
+    if (k === 0 && b >= 20.9 && b < 33.2) {
+      o.visible = popIn > 0.01
+      o.position.copy(modelAnchor).add(V(0, (grow - 1) * 0.05, 0))
+      o.scale.setScalar(0.3 * Math.max(0.001, popIn) * grow)
+      o.quaternion.copy(q)
+    }
+    if (b >= 32 && b < 44.4) {
+      const home = trayPos(k).add(V(0, 0.028, 0)), spin = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), 0.6 + t * 0.35 + k)
+      const appear = pop(t - (32.6 + k * 0.12) * B, 3)
+      let p = home.clone(), s = 0.27 * Math.max(0.001, appear)
+      if (k === 0) { const fly = smooth(32.2, 33.2, b); p = new THREE.Vector3().lerpVectors(modelAnchor, home, easeInOut(fly)).add(V(0, Math.sin(Math.PI * fly) * 0.4, 0)); s = lerp(0.3 * grow, 0.27, fly) }
+      if (k === pickK) p.y += lift * 0.08
+      if (k === pickK && gripped) {
+        p.addScaledVector(pullV, 0.3) // follows only a third of the way
+        const st = 1 + 0.15 * clamp(pullTrays, 0, 1.6)
+        const dir = pullV.clone().normalize(), qd = new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir)
+        o.visible = true; o.position.copy(p); o.quaternion.copy(qd); inner.quaternion.copy(qd.clone().invert().multiply(spin)); inner.scale.set(1, 1, 1)
+        o.scale.set(s, s * st, s)
+        return
+      }
+      if (k === pickK && released) {
+        const sp = S(t - 40 * B, 2.6, 0.45) // 0.6 -> 1.25 -> 1.0 over ~0.35s
+        const back = smooth(41.6, 42.8, b)
+        p = new THREE.Vector3().lerpVectors(hand.palm.clone().add(V(0, 0.12, 0)), home, easeInOut(back)).add(V(0, Math.sin(Math.PI * back) * 0.35, 0))
+        s = 0.27 * (b < 41.6 ? lerp(0.6, 1, sp) : 1)
+      }
+      if (k === pick2 && b >= 41.6) { const sp2 = S(t - 42.6 * B, 2.6, 0.45); if (b >= 42.6) { p = hand.palm.clone().add(V(0, 0.12, 0)); s = 0.27 * lerp(0.6, 1, sp2) } else { p.addScaledVector(hand.pinchAt.clone().sub(p), 0.3 * smooth(41.6, 42.5, b)) } }
+      o.visible = true; o.position.copy(p); o.quaternion.copy(spin); o.scale.setScalar(s)
+    }
+  })
+  // ruler: grows beside the model (27..31, a tick per beat), tips over and splits into trays (32..34)
+  const rulerH = track([[0, 0.001], [27.2, 0.9, 1.4, 0.85]])(t)
+  const tip = smooth(31.6, 32.4, b)
+  ruler.visible = b > 27 && b < 32.6
+  ruler.scale.set(1, Math.max(0.001, rulerH), 1)
+  ruler.position.set(HANDSPOT.x + 0.32 + tip * 0.3, rulerH / 2 * (1 - tip) + 0.025 * tip, HANDSPOT.z); ruler.rotation.z = -tip * Math.PI / 2
+  rulerTicks.forEach((m, k) => { const on = b >= 27.2 + k && b < 32.2; m.visible = on && ruler.visible; m.position.set(HANDSPOT.x + 0.32, (k + 1) * 0.15 * Math.min(1, rulerH / 0.9), HANDSPOT.z); m.scale.setScalar(pop(t - (27.2 + k) * B, 5)) })
+  trays.forEach((tr, k) => {
+    const on = b > 32.2 && b < 44.4
+    tr.visible = on
+    const from = V(HANDSPOT.x + 0.62, 0.03, HANDSPOT.z), to = trayPos(k)
+    const e = easeInOut(clamp(split * 1.2 - k * 0.04))
+    tr.position.lerpVectors(from, to, e); tr.scale.set(lerp(0.12, 1, e), 1, lerp(0.15, 1, e))
+    if (k === pickK) { tr.position.y += lift * 0.08; tr.position.z += lift * 0.05 }
+    tr.userData.ghost.visible = (k === pickK && released && b < 42.8) || (k === pick2 && b >= 42.6)
+  })
+  // band between tray and gripped model: a tube that thins as it stretches
+  band.visible = gripped && pullTrays > 0.15
+  if (band.visible) {
+    const a = trayPos(pickK).add(V(0, 0.06 + lift * 0.08, lift * 0.05)), m = models[pickK].outer.position.clone().add(V(0, 0.06, 0))
+    const curve = new THREE.QuadraticBezierCurve3(a, a.clone().lerp(m, 0.5).add(V(0, -0.05, 0)), m)
+    band.geometry.dispose(); band.geometry = new THREE.TubeGeometry(curve, 24, 0.05 / (1 + 1.6 * pullTrays), 10, false)
+  }
+
+  // ----- CALL: the card folds into one panel; the others unfold from behind it like a map -----
+  const callIn = smooth(44, 45.2, b), callOut = smooth(52, 52.8, b)
+  const PW = 0.64, PH = 0.4
+  const grid = [[-1, 0.5], [0, 0.5], [1, 0.5], [-1, -0.5], [1, -0.5], [0, -0.5]] // main panel = [0, 0.5]; the others around it
+  if (b >= 44) {
+    // card becomes the main panel: aspect 4:5 -> 16:10, corners round
+    const k = callIn
+    card.visible = b < 52.6
+    const us = lerp(1, (PH - 0.02) / (CARD_H + 0.06), k)
+    card.scale.set(us, us, 1)
+    card.position.set(CARD.x, lerp(CARD.y, CARD.y + 0.22, k), CARD.z + 0.012 * k)
+    mainPanel.visible = k > 0.01 && callOut < 0.999
+    mainPanel.position.set(CARD.x, CARD.y + 0.22, CARD.z - 0.005); mainPanel.scale.set(lerp(0.4, 1, k) * (1 - callOut * 0.999), (1 - callOut * 0.999), 1)
+    panels.forEach((p, i) => {
+      const [gx, gy] = grid[[0, 2, 3, 4, 5][i]]
+      const unfold = smooth(45 + i * 0.22, 45.8 + i * 0.22, b) * (1 - callOut)
+      p.visible = unfold > 0.001
+      const tx = CARD.x + gx * (PW + 0.04), ty = CARD.y + 0.22 + (gy - 0.5) * (PH + 0.04) * 2 * 0.5 - (gy < 0 ? PH + 0.04 - (PH + 0.04) : 0)
+      p.position.set(lerp(CARD.x, tx, unfold), lerp(CARD.y + 0.22, gy > 0 ? CARD.y + 0.22 : CARD.y + 0.22 - (PH + 0.04), unfold), CARD.z - 0.02 + 0.02 * unfold)
+      p.rotation.set(gy < 0 ? (1 - unfold) * -Math.PI / 2 : 0, gy > 0 ? (1 - unfold) * Math.sign(gx) * Math.PI / 2 : 0, 0)
+    })
+    const mTop = V(CARD.x, CARD.y + 0.22 + PH / 2, CARD.z + 0.04)
+    const md = S(t - 46 * B, 2.4, 0.75) * (1 - callOut)
+    menu.visible = md > 0.01; menu.position.set(CARD.x + 0.56, mTop.y - 0.2 * md, CARD.z + 0.08); menu.scale.set(1, Math.max(0.001, md), 1)
+    menu.redraw({ hl: Math.round(smooth(46.9, 47.1, b) * 10) / 10, tick: Math.round(smooth(47.2, 47.8, b) * 20) / 20 })
+    tag.redraw({}); lock.redraw({})
+    const tg = S(t - 48 * B, 2.8, 0.8) * (1 - callOut)
+    tag.visible = tg > 0.01; tag.position.set(CARD.x - PW / 2 + 0.16 - (1 - tg) * 0.2, CARD.y + 0.22 - PH / 2 + 0.06, CARD.z + 0.035)
+    const lk = pop(t - 49 * B, 2.4) * (1 - callOut)
+    lock.visible = lk > 0.01; lock.position.set(CARD.x, CARD.y - 0.45 + lk * 0.05, CARD.z + 0.1); lock.scale.setScalar(Math.max(0.001, lk))
+  } else { panels.forEach((p) => (p.visible = false)); menu.visible = tag.visible = lock.visible = mainPanel.visible = false; card.scale.set(1, 1, 1); card.position.copy(CARD) }
+  handGroup.visible = b > 10.6 && b < 52.4
+
+  renderer.render(scene, camera)
+}
+
+// ---------- top-down sketch of the camera path (for review) ----------
+window.topdown = () => {
+  const pts = []; for (let i = 0; i <= 560; i++) { const c = camAt((i / 560) * DUR); pts.push([c.pos.x, c.pos.z, c.tgt.x, c.tgt.z, i / 10]) }
+  return { pts, marks: { lens: [LENS.x, LENS.z], card: [CARD.x, CARD.z], hand: [HANDSPOT.x, HANDSPOT.z], shelf: [SHELF.x, SHELF.z], word: [DOT_X - 1.4, 0] }, keys: CAMKEYS.map((k) => [k[0], k[1].x, k[1].z]) }
+}
+window.seek = seek
+window.timeline = () => ({ duration: DUR, bpm: BPM, beat: B, cues: [] })
+window.configure = () => {}
+await build()
+window.ready = true
+if (!window.__RENDER__) {
+  document.body.classList.add('preview')
+  const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth, innerHeight) / W); fit(); addEventListener('resize', fit)
+  const p = new URLSearchParams(location.search)
+  if (p.has('t')) await seek(+p.get('t'))
+  else { const t0 = performance.now(); const loop = async () => { await seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop) }; loop() }
+}
+</script>
+</body>
+</html>

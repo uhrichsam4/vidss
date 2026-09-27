@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<body style="margin:0;background:transparent">
+<canvas id="c" width="768" height="768"></canvas>
+<script type="importmap">{ "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }</script>
+<script type="module">
+// Renders one GLB as a 24-frame turntable on a transparent canvas: same camera, same framing, same lights for
+// every model, pivot = the model's vertical axis through its bounding-box centre, frame 0 facing the viewer.
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+const canvas = document.getElementById('c')
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true })
+renderer.setClearColor(0x000000, 0)
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.outputColorSpace = THREE.SRGBColorSpace
+const scene = new THREE.Scene()
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(2, 3, 4); scene.add(key)
+const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100)
+camera.position.set(0, 0.35, 4.2); camera.lookAt(0, 0, 0)
+const pivot = new THREE.Group(); scene.add(pivot)
+window.load = async (url) => {
+  const gltf = await new GLTFLoader().loadAsync(url)
+  const obj = gltf.scene
+  const box = new THREE.Box3().setFromObject(obj), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3())
+  const s = 1.7 / Math.max(size.x, size.y, size.z) // every model fills the same frame
+  obj.scale.setScalar(s); obj.position.set(-c.x * s, -c.y * s, -c.z * s)
+  pivot.clear(); pivot.add(obj)
+  return { size: [size.x, size.y, size.z].map((v) => +v.toFixed(3)) }
+}
+window.frame = (k, yawOffset = 0) => { pivot.rotation.y = yawOffset + (k * Math.PI * 2) / 24; renderer.render(scene, camera); return canvas.toDataURL('image/png') }
+// straight-on portrait: camera aimed at (0, y, 0) from distance d, 4:5 frame
+window.portrait = (y, d, w = 960, h = 1200) => {
+  renderer.setSize(w, h, false); const cam = new THREE.PerspectiveCamera(24, w / h, 0.01, 100)
+  cam.position.set(0, y, d); cam.lookAt(0, y, 0); pivot.rotation.y = 0
+  renderer.render(scene, cam); const url = canvas.toDataURL('image/png'); renderer.setSize(768, 768, false); return url
+}
+window.ready = true
+</script>
