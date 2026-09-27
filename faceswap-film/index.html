@@ -647,7 +647,7 @@ function liveScene(t, b, cs, lens) {
     place(E.stripTile, CARD.x + CARD.w / 2 - 80, y, cardZ + 2, sg)
   }
   // ---- the hand: dots over the clip, then the 3D hand (the camera's lens decides how deep) ----
-  if (b < 49.2 || sink >= 1 && b < 90.5) return
+  if (b < 49.2) return
   const S = u * SL[pose.name === 'shelf' ? 'shelf' : pose.name].ppm
   let deepK = clamp(lens)
   if (b >= 101) deepK = clamp(lens)
