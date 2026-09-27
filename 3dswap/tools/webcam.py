@@ -9,6 +9,9 @@ OUT_W, OUT_H = 640, 800
 EYE_Y, EYE_D = 0.42, 0.21
 d = json.load(open('tmp/cam/faces.json'))
 F = np.array(d['faces'], dtype=float)                      # x y w h  re le  nose  rm lm  (image coords)
+# single-frame detector glitches (a jumped box / misplaced eyes): running median over 15 frames before any smoothing
+from scipy.ndimage import median_filter
+F = median_filter(F, size=(15, 1), mode='nearest')
 eyeA, eyeB, nose, mA, mB = F[:, 4:6], F[:, 6:8], F[:, 8:10], F[:, 10:12], F[:, 12:14]
 left = np.where((eyeA[:, 0] < eyeB[:, 0])[:, None], eyeA, eyeB); right = np.where((eyeA[:, 0] < eyeB[:, 0])[:, None], eyeB, eyeA)
 mid = (left + right) / 2; ed = np.hypot(*(right - left).T)
