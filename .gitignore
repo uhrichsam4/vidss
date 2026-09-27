@@ -34,3 +34,12 @@ europe-history/audio/*.wav
 3dswap/audio/mix.wav
 # reference videos downloaded from X (third-party content) stay local
 */ref/
+# faceswap film: generated files, the local voice model, and personal face images stay out of the public repo
+faceswap-film/tmp/
+faceswap-film/out/
+faceswap-film/kit/
+faceswap-film/tools/tts/
+faceswap-film/assets/faces/
+faceswap-film/audio/mix.wav
+faceswap-film/audio/voice/*.wav
+faceswap-film/node_modules/

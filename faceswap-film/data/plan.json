@@ -1,0 +1,240 @@
+{
+ "bpm": 120,
+ "beats": 120,
+ "duration": 60.0,
+ "sections": [
+  [
+   1,
+   "Open",
+   "flat"
+  ],
+  [
+   9,
+   "Build",
+   "flat"
+  ],
+  [
+   29,
+   "Start",
+   "flat, deep, flat"
+  ],
+  [
+   45,
+   "Live",
+   "flat real, then deep"
+  ],
+  [
+   65,
+   "Breakdown",
+   "deep, pressed flat"
+  ],
+  [
+   77,
+   "Return",
+   "deep"
+  ],
+  [
+   89,
+   "Shelf",
+   "deep"
+  ],
+  [
+   101,
+   "Call",
+   "deep, then flat"
+  ],
+  [
+   113,
+   "Close",
+   "flat"
+  ]
+ ],
+ "slices": [
+  {
+   "name": "live",
+   "from_beat": 49,
+   "to_beat": 67,
+   "anchor": [
+    5.967,
+    28.0
+   ],
+   "why": "pinch (5.97 s) on beat 57, let-go early in the Breakdown",
+   "in_s": 1.967,
+   "out_s": 10.967
+  },
+  {
+   "name": "zoom",
+   "from_beat": 71,
+   "to_beat": 89,
+   "anchor": [
+    21.967,
+    41.5
+   ],
+   "why": "first quick pinch on beat 84 (the second lands on 85)",
+   "in_s": 15.467,
+   "out_s": 24.467
+  },
+  {
+   "name": "shelf",
+   "from_beat": 89,
+   "to_beat": 101,
+   "anchor": [
+    8.366666666666667,
+    48.5
+   ],
+   "why": "shelf pop on beat 98",
+   "in_s": 3.867,
+   "out_s": 9.867
+  }
+ ],
+ "voice": [
+  [
+   1.5,
+   "It started with one message.",
+   "maker_quotes.lines[0]"
+  ],
+  [
+   8.75,
+   "Built in Claude Code, with builders, reviewers, and a harsh judge.",
+   "making_of.built_in"
+  ],
+  [
+   15.5,
+   "The first version: six to eight frames a second.",
+   "speed.first_version"
+  ],
+  [
+   19.5,
+   "Now: thirty.",
+   "speed.now"
+  ],
+  [
+   24.5,
+   "Out of a thousand: three seventy-three. Then five seventy-eight.",
+   "making_of.judge_out_of_1000_first_round / _second_round"
+  ],
+  [
+   31.5,
+   "Pick a face.",
+   "app.start_screen.flow"
+  ],
+  [
+   33.5,
+   "Drag in a model.",
+   "app.start_screen.flow"
+  ],
+  [
+   42,
+   "Start cam.",
+   "app.start_screen.flow"
+  ],
+  [
+   46.5,
+   "Live face swap, from one photo, right on the Mac.",
+   "app.what_it_does[0]"
+  ],
+  [
+   51.75,
+   "Thirty frames a second.",
+   "speed.now"
+  ],
+  [
+   53.75,
+   "A 3D model follows your open hand.",
+   "app.what_it_does[1]"
+  ],
+  [
+   58,
+   "Pinch: it stays exactly where it is. It only turns.",
+   "app.what_it_does[2]"
+  ],
+  [
+   65.5,
+   "But the zoom was recognised zero percent of the time.",
+   "making_of.what_the_recording_found"
+  ],
+  [
+   71.25,
+   "The 3D guess said the fingertips were apart.",
+   "making_of.what_the_recording_found"
+  ],
+  [
+   77,
+   "Measured in the picture: one hundred percent.",
+   "making_of.what_the_recording_found (prototype of the fix)"
+  ],
+  [
+   81.25,
+   "Three fingers: it grows, or shrinks.",
+   "app.what_it_does[4]"
+  ],
+  [
+   84.75,
+   "Two quick pinches: it faces you.",
+   "app.what_it_does[3]"
+  ],
+  [
+   89.5,
+   "A shelf of up to ten models.",
+   "app.shelf_models_max, app.what_it_does[5]"
+  ],
+  [
+   93.5,
+   "Pinch, pull. It resists,",
+   "app.what_it_does[5]"
+  ],
+  [
+   97.75,
+   "then pops into your hand.",
+   "app.what_it_does[5]"
+  ],
+  [
+   101,
+   "A virtual camera for calls and OBS.",
+   "app.what_it_does[7]"
+  ],
+  [
+   105.5,
+   "Hands stay in front of the face.",
+   "app.what_it_does[6]"
+  ],
+  [
+   108.5,
+   "On a MacBook Pro, M4 Pro.",
+   "app.runs_on"
+  ],
+  [
+   113,
+   "Everything runs on the Mac. Nothing is uploaded.",
+   "app.runs_on"
+  ],
+  [
+   117.5,
+   "swapstudio.",
+   "wordmark (maker)"
+  ]
+ ],
+ "pump_peaks_beat": [
+  77.67,
+  78.81,
+  79.87,
+  81.01,
+  82.07
+ ],
+ "touches_s": {
+  "pinch": 5.967,
+  "let_go": 10.167,
+  "zoom_met": 17.0,
+  "zoom_middle": 17.8,
+  "zoom_let_go": 21.633333333333333,
+  "tap1": 21.967,
+  "tap2": 22.433,
+  "shelf_pop": 8.366666666666667
+ },
+ "shelf_tile_px": 56,
+ "nulls": [
+  "judge_out_of_1000_after_build",
+  "tests_passing_after_build",
+  "zoom_recognised_after_build"
+ ]
+}

@@ -1,0 +1,74 @@
+{
+  "about": "True facts about the app and how it was made, for the launch film. Use only these numbers on screen. Checked on 2026-09-27; the lines marked 'after_build' are filled in when the current rebuild is finished.",
+  "app": {
+    "what_it_does": [
+      "Live face swap from one photo, on the camera picture, running on the Mac itself",
+      "A 3D model sits above your open hand and follows it",
+      "Pinch thumb and index: the model stays exactly where it is and only turns",
+      "Two quick pinches: the model turns back to face the camera",
+      "Thumb, index and middle finger together, then move up or down: the model grows or shrinks",
+      "A shelf of up to 10 models down the side of the picture: reach, pinch and pull, it resists, then pops out into your hand",
+      "Hands stay in front of the swapped face, so the face does not glitch when a hand passes over it",
+      "Sends the picture to video calls and OBS as a virtual camera, with an 'AI effect' tag in the corner",
+      "Double-click launchers: pick a face photo, pick models, start"
+    ],
+    "runs_on": "MacBook Pro M4 Pro, 24 GB. Everything runs on the Mac; nothing is uploaded.",
+    "picture": "1280 x 720",
+    "shelf_models_now": 6,
+    "shelf_models_max": 10,
+    "start_screen": {
+      "status": "being built on 2026-09-27; it exists once the lead confirms it",
+      "flow": "Open Studio -> click a face photo -> drag a 3D model in from Finder -> press Start cam -> the live picture starts"
+    }
+  },
+  "speed": {
+    "first_version": "about 6 to 8 frames a second (the maker said 'its at like 6fps'; an early logged session: 7.7 fps)",
+    "now": "30 frames a second on the real camera, with the face updating 9 to 13 times a second",
+    "real_speed_line": "30.0 fps | swap updates 9.5/s | picture 1280x720 | swap 19.9+1.7 ms | hand-ar 16.5+14.0 ms | closest pinch 0.10, zoom 0.18 | outputs 0.1 ms | preview 14.6 ms"
+  },
+  "making_of": {
+    "built_in": "Claude Code, by the maker talking to Claude, with teams of helper agents: builders, reviewers and a harsh judge",
+    "judge_out_of_10": [
+      7,
+      8,
+      9,
+      9.5,
+      9.5,
+      9.5,
+      9.5,
+      9.7
+    ],
+    "judge_out_of_1000_first_round": 373,
+    "judge_out_of_1000_after_build": null,
+    "tests_passing_before_rebuild": 457,
+    "tests_passing_after_build": null,
+    "hand_recording": {
+      "length_seconds": 47,
+      "gestures_asked_for": 10,
+      "frames": 1412,
+      "frames_with_the_hand": 1294,
+      "every_gap_was": "the hand leaving the picture, not the tracker losing it"
+    },
+    "what_the_recording_found": "The zoom gesture was recognised 0% of the time before the fix, because the tracker's 3D guess said the fingertips were apart while the picture showed them together. Measured in the picture, a prototype of the fix got it 100% right.",
+    "zoom_recognised_after_build": null,
+    "better_model_test": "Apple's built-in hand tracker, tried on the same recording, found the hand in 1250 frames against 1292 and was jumpier, so the app kept its tracker and fixed how it reads the fingers.",
+    "judge_out_of_1000_second_round": 578
+  },
+  "maker_quotes": {
+    "note": "Real messages the maker typed while building it, typos and all. Use them only if the maker says yes.",
+    "lines": [
+      "hello can we make a face swapping thing like deep face cam pls",
+      "its at like 6fps bro can we make ti way more",
+      "i want 25fps or 20",
+      "ok make it so if i pinch it stays there and i can move it around never move if i am pinching pls only rotate",
+      "if i dubble tap it makes it look at me straight",
+      "this is the zoom in and out one pls so make sure it works",
+      "make a extreme harsh one from 1/1000"
+    ]
+  },
+  "rules_for_the_film": [
+    "Every shot with a swapped face keeps the 'AI effect' tag on screen.",
+    "Only faces of people who agreed to it.",
+    "Do not show anything the app does not do. Not yet built: the model is not hidden behind your fingers."
+  ]
+}

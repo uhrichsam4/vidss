@@ -1,0 +1,110 @@
+{
+ "touches": [
+  {
+   "what": "pinch (thumb and index), hand moving sideways",
+   "start_f": 179,
+   "end_f": 305,
+   "start_s": 5.967,
+   "end_s": 10.167,
+   "dur_s": 4.2
+  },
+  {
+   "what": "pinch (thumb and index), hand moving sideways",
+   "start_f": 336,
+   "end_f": null,
+   "start_s": 11.2,
+   "end_s": null
+  },
+  {
+   "what": "zoom touch",
+   "start_f": 510,
+   "end_f": 649,
+   "start_s": 17.0,
+   "end_s": 21.633,
+   "dur_s": 4.633,
+   "middle_joined_f": 534,
+   "middle_joined_s": 17.8
+  },
+  {
+   "what": "zoom gesture (thumb, index and middle together), hand moving up then down",
+   "start_f": 531,
+   "end_f": 649,
+   "start_s": 17.7,
+   "end_s": 21.633,
+   "dur_s": 3.933,
+   "middle_joined_f": 534,
+   "middle_joined_s": 17.8
+  },
+  {
+   "what": "zoom gesture (thumb, index and middle together), hand moving up then down",
+   "start_f": 659,
+   "end_f": 667,
+   "start_s": 21.967,
+   "end_s": 22.233,
+   "dur_s": 0.267,
+   "middle_joined_f": 659,
+   "middle_joined_s": 21.967
+  },
+  {
+   "what": "zoom gesture (thumb, index and middle together), hand moving up then down",
+   "start_f": 673,
+   "end_f": 682,
+   "start_s": 22.433,
+   "end_s": 22.733,
+   "dur_s": 0.3,
+   "middle_joined_f": 673,
+   "middle_joined_s": 22.433
+  },
+  {
+   "what": "zoom touch",
+   "start_f": 716,
+   "end_f": null,
+   "start_s": 23.867,
+   "end_s": null,
+   "middle_joined_f": 716,
+   "middle_joined_s": 23.867
+  },
+  {
+   "what": "double tap",
+   "start_f": 729,
+   "end_f": 736,
+   "start_s": 24.3,
+   "end_s": 24.533,
+   "dur_s": 0.233,
+   "middle_joined_f": 729,
+   "middle_joined_s": 24.3
+  }
+ ],
+ "zoom": {
+  "fingertips_met_f": 510,
+  "middle_joined_f": 534,
+  "let_go_f": 649,
+  "pump_top_f": [
+   564,
+   581,
+   597,
+   614,
+   630
+  ],
+  "pump_bottom_f": [
+   572,
+   589,
+   605,
+   622
+  ],
+  "pump_top_s": [
+   18.8,
+   19.37,
+   19.9,
+   20.47,
+   21.0
+  ],
+  "pump_bottom_s": [
+   19.07,
+   19.63,
+   20.17,
+   20.73
+  ]
+ },
+ "hand_size_px_median": 318.5664854327136
+}

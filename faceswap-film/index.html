@@ -1,0 +1,1127 @@
+<!doctype html>
+<!--
+  swapstudio: launch film. 1440x1440, 120 BPM, 120 beats (1 minute), one camera that never cuts.
+  Flat (keynote 2D, near-orthographic at 0.5 deg) and deep (28-40 deg) are one camera: going deep is a dolly zoom that
+  keeps everything on the target plane the same size while depth opens around it. Every value is a pure function of time
+  inside async seek(t); tables built once on load (hand, gestures, the model's app-rule simulation) are looked up only.
+  1 world unit = 1 output pixel of the flat layout. Boards stand upright facing the camera over a floor.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>swapstudio</title>
+<style>html, body { margin: 0; background: #0e0e10; } canvas { display: block; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview canvas { transform: scale(var(--fit, 0.5)); transform-origin: center; }</style>
+<script type="importmap">{ "imports": {
+  "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/",
+  "troika-three-text": "./node_modules/troika-three-text/dist/troika-three-text.esm.js",
+  "troika-three-utils": "./node_modules/troika-three-utils/dist/troika-three-utils.esm.js",
+  "troika-worker-utils": "./node_modules/troika-worker-utils/dist/troika-worker-utils.esm.js",
+  "webgl-sdf-generator": "./node_modules/webgl-sdf-generator/dist/webgl-sdf-generator.mjs",
+  "bidi-js": "./node_modules/bidi-js/dist/bidi.mjs" } }</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
+import { TTFLoader } from 'three/addons/loaders/TTFLoader.js'
+import { Font } from 'three/addons/loaders/FontLoader.js'
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
+import { Text } from 'troika-three-text'
+import { loadHand, PALM_J } from './hand.js'
+
+const W = 1440, BPM = 120, B = 60 / BPM, BEATS = 120, DUR = BEATS * B
+window.SIZE = [W, W]
+const COL = { bg: '#0e0e10', panel: '#17171b', panel2: '#212127', panel3: '#2b2b33', text: '#f3efe7', dim: '#8f8b84', faint: '#55535a', accent: '#ff6a2b' }
+const FONT = { word: 'assets/fonts/archivo-125-800.ttf', ui: 'assets/fonts/Geist-Regular.ttf', uiM: 'assets/fonts/Geist-Medium.ttf', uiS: 'assets/fonts/Geist-SemiBold.ttf',
+  mono: 'assets/fonts/GeistMono-Regular.ttf', monoM: 'assets/fonts/GeistMono-Medium.ttf', serif: 'assets/fonts/InstrumentSerif-Italic.woff' }
+const FLOOR = -820
+
+// ---------- time & springs ----------
+const at = (beat) => (beat - 1) * B                     // beat n (1-based, as in the beat map) starts here
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x))
+const lerp = (a, c, p) => a + (c - a) * p
+const smooth = (a, c, x) => { const u = clamp((x - a) / (c - a)); return u * u * (3 - 2 * u) }
+const ease = (u) => { u = clamp(u); return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2 }
+function S(t, f, z) { if (t <= 0) return 0; const w = 2 * Math.PI * f; if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t)) }
+// a value with many targets = first value + one closed-form spring per change. keys: [beat, value, f?, z?]
+const track = (keys, f = 2.4, z = 0.9) => { const d = keys.slice(1).map((k, i) => [at(k[0]), k[1] - keys[i][1], k[2] || f, k[3] ?? z]); return (t) => d.reduce((v, [tk, dv, ff, zz]) => v + dv * S(t - tk, ff, zz), keys[0][1]) }
+const on = (t, beat, f = 3, z = 0.85) => S(t - at(beat), f, z)
+const pop = (t, beat, f = 3.4) => S(t - at(beat), f, 0.5)             // 0 -> ~1.2 -> 1
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z)
+const tiny = (s) => Math.max(1e-4, s)
+
+// ---------- renderer, studio ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+renderer.setPixelRatio(1); renderer.setSize(W, W)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.toneMapping = THREE.NeutralToneMapping
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.autoClear = false
+renderer.localClippingEnabled = true                          // mask lines clip meshes in their own planes
+document.body.appendChild(renderer.domElement)
+const scene = new THREE.Scene()
+renderer.setClearColor(new THREE.Color(COL.bg), 1)          // not scene.background: that would clear between passes
+const camera = new THREE.PerspectiveCamera(0.5, 1, 1, 10)
+const key = new THREE.DirectionalLight('#fff4e6', 2.1)
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = 1.2
+scene.add(key, key.target)
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(14000, 14000, 40, 40), new THREE.ShadowMaterial({ opacity: 0.42 }))  // subdivided: huge quads mis-clip
+floor.rotation.x = -Math.PI / 2; floor.position.y = FLOOR; floor.receiveShadow = true; scene.add(floor)
+// overlay pass: output pixels, y up; the corner card and the captions live here so nothing in the scene can hide them
+const ov = new THREE.Scene(), ovCam = new THREE.OrthographicCamera(0, W, W, 0, -2000, 2000)
+
+// ---------- flat primitives: SDF panels, troika text ----------
+const panelMat = () => new THREE.ShaderMaterial({
+  transparent: true, toneMapped: false,
+  uniforms: { uSize: { value: new THREE.Vector2(100, 100) }, uR: { value: 16 }, uCol: { value: new THREE.Color(COL.panel) }, uOp: { value: 1 },
+    uClip: { value: new THREE.Vector4(-1e9, -1e9, 1e9, 1e9) }, uStroke: { value: 0 }, uProg: { value: 1 }, uDash: { value: 0 } },
+  vertexShader: `uniform vec2 uSize; varying vec2 vP; void main(){ vP = position.xy * (uSize + 8.0); gl_Position = projectionMatrix * modelViewMatrix * vec4(vP, 0.0, 1.0); }`,
+  fragmentShader: `uniform vec2 uSize; uniform float uR, uOp, uStroke, uProg, uDash; uniform vec3 uCol; uniform vec4 uClip; varying vec2 vP;
+    void main(){
+      if (vP.x < uClip.x || vP.y < uClip.y || vP.x > uClip.z || vP.y > uClip.w) discard;
+      float r = min(uR, 0.5 * min(uSize.x, uSize.y));
+      vec2 q = abs(vP) - uSize * 0.5 + r; float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+      float aa = max(fwidth(d), 1e-4), a;
+      if (uStroke > 0.0) {
+        a = 1.0 - smoothstep(uStroke * 0.5 - aa, uStroke * 0.5 + aa, abs(d + uStroke * 0.5));
+        float ang = fract(0.25 - atan(vP.y, vP.x) / 6.2831853);            // 0 at the top, clockwise: the ring draws round
+        a *= 1.0 - smoothstep(uProg - 0.004, uProg, ang);
+        if (uDash > 0.0) a *= step(0.5, fract((vP.x + vP.y) / uDash));
+      } else a = 1.0 - smoothstep(-aa, aa, d);
+      if (a < 0.002) discard;
+      gl_FragColor = vec4(uCol, a * uOp);
+      #include <colorspace_fragment>
+    }` })
+const QUAD = new THREE.PlaneGeometry(1, 1)
+const slabGeo = new Map()
+function roundedShape(w, h, r) { const s = new THREE.Shape(), x = -w / 2, y = -h / 2; r = Math.min(r, w / 2, h / 2)
+  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s }
+const managed = []                                          // everything seek() may show; hidden at the start of each frame
+function panel({ w = 100, h = 100, r = 16, color = COL.panel, slab = true, stroke = 0, order = 0 } = {}) {
+  const g = new THREE.Group(); const face = new THREE.Mesh(QUAD, panelMat()); face.renderOrder = order; g.add(face)
+  let body = null
+  if (slab) { body = new THREE.Mesh(undefined, new THREE.MeshStandardMaterial({ color, roughness: 0.85 })); body.castShadow = true; body.receiveShadow = true; g.add(body) }
+  g.userData.kind = 'panel'
+  g.set = (o) => {
+    const u = face.material.uniforms
+    if (o.w !== undefined || o.h !== undefined) { w = o.w ?? w; h = o.h ?? h }
+    if (o.r !== undefined) r = o.r
+    u.uSize.value.set(w, h); u.uR.value = r
+    if (o.color) { u.uCol.value.set(o.color); if (body) body.material.color.set(o.color) }
+    if (o.op !== undefined) u.uOp.value = o.op
+    u.uStroke.value = o.stroke ?? stroke; u.uProg.value = o.prog ?? 1; u.uDash.value = o.dash ?? 0
+    const c = o.clip; u.uClip.value.set(c ? c[0] : -1e9, c ? c[1] : -1e9, c ? c[2] : 1e9, c ? c[3] : 1e9)
+    if (body) {                                              // 4-unit-deep slab behind the face, rebuilt only when its size changes
+      const k = `${Math.round(w / 4) * 4}x${Math.round(h / 4) * 4}x${Math.round(r)}`
+      if (!slabGeo.has(k)) slabGeo.set(k, new THREE.ExtrudeGeometry(roundedShape(Math.round(w / 4) * 4, Math.round(h / 4) * 4, r), { depth: 4, bevelEnabled: false, curveSegments: 6 }))
+      body.geometry = slabGeo.get(k); body.position.z = -4.6; body.visible = !c && (o.op ?? 1) > 0.99 && w > 8 && h > 8
+    }
+    return g
+  }
+  g.set({ w, h, r, color })
+  scene.add(g); managed.push(g); return g
+}
+const texts = []
+function txt(str, { font = FONT.ui, size = 28, color = COL.text, ax = 'left', ay = 'middle', maxW = Infinity, lh = 1.25, ls = 0, align = 'left', order = 5 } = {}) {
+  const t = new Text()
+  t.material = new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true })
+  Object.assign(t, { text: str, font, fontSize: size, color, anchorX: ax, anchorY: ay, maxWidth: maxW, lineHeight: lh, letterSpacing: ls, textAlign: align })
+  t.renderOrder = order; scene.add(t); texts.push(t); managed.push(t); return t
+}
+// every visible text must finish its sync before a frame is captured (troika drops the callback of a sync() made
+// while another is running, so wait for its 'synccomplete' event instead)
+const syncOne = (t) => new Promise((r) => {
+  if (t._needsSync && !t._isSyncing) return t.sync(r)
+  const done = () => { t.removeEventListener('synccomplete', done); r() }
+  t.addEventListener('synccomplete', done); if (t._needsSync) t.sync()
+})
+const syncAll = async () => { for (let k = 0; k < 4; k++) { const ts = texts.filter((t) => t.visible && (t._needsSync || t._isSyncing)); if (!ts.length) return; await Promise.all(ts.map(syncOne)) } }
+// a string that swaps through a mask line: the old one leaves upward, the new one rises from below, each clipped to the line
+function swapText(a, b, p, lineH) {
+  const y = p * lineH * 1.1
+  a.position.y = a.userData.y0 + y; a.clipRect = [-1e5, -lineH * 0.6 - y, 1e5, lineH * 0.6 - y]
+  b.position.y = b.userData.y0 + y - lineH * 1.1; b.clipRect = [-1e5, -lineH * 0.6 - y + lineH * 1.1, 1e5, lineH * 0.6 - y + lineH * 1.1]
+  a.visible = p < 0.999; b.visible = p > 0.001
+}
+
+// ---------- one camera: target, direction, framed height, field of view ----------
+// direction: yaw about world up, elevation above the horizontal; position = target + dir * H / (2 tan(fov/2)).
+// fov runs on L = log(tan(fov/2)) so a crossing is a dolly zoom: the target plane keeps its size to the pixel.
+const Lof = (deg) => Math.log(Math.tan((deg * Math.PI) / 360)), FLAT = Lof(0.5)
+function applyCam({ T, yaw, el, H, L }) {
+  const fov = 2 * Math.atan(Math.exp(L)), dist = H / (2 * Math.tan(fov / 2))
+  const dir = V(Math.cos(el) * Math.sin(yaw), Math.sin(el), Math.cos(el) * Math.cos(yaw))
+  camera.quaternion.setFromEuler(new THREE.Euler(-el, yaw, 0, 'YXZ'))
+  camera.position.copy(T).addScaledVector(dir, dist)
+  camera.fov = (fov * 180) / Math.PI
+  const R = 4200 + H * 1.5                                    // near and far hug the scene around the target every frame
+  camera.near = Math.max(40, dist - R); camera.far = dist + R; camera.updateProjectionMatrix(); camera.updateMatrixWorld()
+  floor.position.x = T.x; floor.position.z = T.z                     // the floor follows the target (it only shows shadows)
+  key.target.position.copy(T); key.position.copy(T).add(V(900, 2400, 2600))
+  const sc = key.shadow.camera, e = Math.max(900, H * 1.1); sc.left = -e; sc.right = e; sc.top = e; sc.bottom = -e; sc.near = 200; sc.far = 9000; sc.updateProjectionMatrix()
+  return { fov, dist }
+}
+// world point -> output pixels (y up), for handing a card from the scene to the overlay on the exact frame
+const toPx = (v) => { const p = v.clone().project(camera); return V((p.x + 1) * W / 2, (p.y + 1) * W / 2, 0) }
+
+
+// ================= models: the model itself, squashed flat when it must look like a picture =================
+// Squash along a world normal in the vertex shader (positions only: normals untouched, so a flat model still shades
+// like its thumbnail), with the same squash in the shadow depth material so its shadow is flat too.
+const MODELS = {}                                          // name -> normalised prototype (bounding-sphere diameter 1)
+const SQ_VS = `vec4 wq = modelMatrix * vec4(transformed, 1.0); wq.xyz -= uSqN * dot(wq.xyz - uSqC, uSqN) * (1.0 - uSq);
+  vec4 mvPosition = viewMatrix * wq; gl_Position = projectionMatrix * mvPosition;`
+function squashable(mat, U) {
+  mat.onBeforeCompile = (sh) => { Object.assign(sh.uniforms, U); sh.vertexShader = 'uniform float uSq; uniform vec3 uSqN; uniform vec3 uSqC;\n' + sh.vertexShader.replace('#include <project_vertex>', SQ_VS) }
+  mat.customProgramCacheKey = () => 'squash'
+  return mat
+}
+async function loadModels() {
+  const gl = new GLTFLoader()
+  for (let k = 1; k <= 6; k++) {
+    const g = await gl.loadAsync(`assets/models/m${k}.glb`), o = g.scene
+    const box = new THREE.Box3().setFromObject(o), c = box.getCenter(V()), r = box.getBoundingSphere(new THREE.Sphere()).radius
+    o.position.sub(c); const wrap = new THREE.Group(); wrap.add(o); wrap.scale.setScalar(0.5 / r)   // centred, diameter 1
+    MODELS['m' + k] = wrap
+  }
+}
+function modelInstance(name) {
+  const U = { uSq: { value: 1 }, uSqN: { value: V(0, 0, 1) }, uSqC: { value: V() } }
+  const inner = SkeletonUtils.clone(MODELS[name]), root = new THREE.Group(); root.add(inner)
+  inner.traverse((m) => {
+    if (!m.isMesh) return
+    m.material = squashable(m.material.clone(), U); m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false
+    m.customDepthMaterial = squashable(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), U)
+  })
+  scene.add(root); managed.push(root)
+  // place(centre, diameter, quaternion, squash 0..1 along normal n through point c)
+  root.place = (p, d, q, sq = 1, n = V(0, 0, 1), c = p) => {
+    root.visible = d > 0.5; root.position.copy(p); root.scale.setScalar(Math.max(1e-3, d)); root.quaternion.copy(q)
+    U.uSq.value = Math.max(0.002, sq); U.uSqN.value.copy(n); U.uSqC.value.copy(c)
+  }
+  return root
+}
+const qEuler = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler((x * Math.PI) / 180, (y * Math.PI) / 180, (z * Math.PI) / 180, 'YXZ'))
+const Q_THUMB = qEuler(12, -30, 0)                          // the app's thumbnail angle: seen from 12 deg above, turned 30 deg
+
+
+// Open, Build and Start were first timed on the 80-beat grid; NB maps those beats onto the one-minute grid (monotonic,
+// piecewise linear) and OB maps back, so their moments keep their order while the film breathes to 120 beats.
+const REMAP = [[1, 1], [1.6, 1.8], [2.5, 3.2], [3.05, 4.2], [4.55, 7.4], [5, 9], [7, 13], [8, 15], [9, 17], [10, 18.6], [11, 21], [13, 24], [14, 25.5], [15, 27],
+  [16.9, 28.9], [17, 29], [18, 30.5], [20, 33.5], [22, 36.2], [23, 37.4], [26, 40.6], [27, 41.4], [28, 43], [29, 45], [200, 216]]
+const pw = (x, A, Bc) => { for (let i = 1; i < REMAP.length; i++) { const a = REMAP[i - 1], c = REMAP[i]; if (x <= c[A] || i === REMAP.length - 1) return a[Bc] + (x - a[A]) * (c[Bc] - a[Bc]) / (c[A] - a[A]) } }
+const NB = (x) => pw(x, 0, 1), OB = (x) => pw(x, 1, 0)
+
+// ---------- data ----------
+let facts, plan, hand, voice, sim = {}
+const Q = () => facts.maker_quotes.lines
+
+// ---------- build ----------
+const E = {}                                                // every element, by name
+async function build() {
+  ;[facts, plan, voice] = await Promise.all(['data/facts.json', 'data/plan.json', 'audio/voice/voice.json'].map((u) => fetch(u).then((r) => r.json())))
+  hand = await loadHand('data/hand_motion.json')
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  scene.environment = pmrem.fromEquirectangular(await new RGBELoader().loadAsync('assets/hdri/monochrome_studio_02_1k.hdr')).texture
+  scene.environmentIntensity = 0.32
+  await loadModels()
+  buildOpenBuild()
+  await buildWords()
+  await buildStart()
+  window.__touches = await fetch('data/touches.json').then((r) => r.json())
+  buildLive()
+  await buildCaptions()
+}
+
+// ================= OPEN + BUILD (flat) =================
+let digitFont
+function buildOpenBuild() {
+  // wordmark: one text per letter so the squeeze can move them; the period becomes the chat pill
+  E.word = [...'swapstudio.'].map((ch) => txt(ch, { font: FONT.word, size: 150, ax: 'left', ay: 'middle', order: 8 }))
+  E.pill = panel({ w: 40, h: 40, r: 6, color: COL.text, slab: false, order: 7 })
+  E.pillText = txt('', { size: 34, color: '#141416', ax: 'left', ay: 'middle', order: 9 })
+  E.caret = panel({ w: 3, h: 40, r: 1, color: '#141416', slab: false, order: 9 })
+  E.chat = panel({ w: 1240, h: 1200, r: 16, color: COL.panel, order: 1 })
+  E.chatHead = txt('Built in Claude Code', { font: FONT.uiS, size: 30 })
+  E.bubbles = [0, 1, 2, 3, 4, 5, 6].map(() => ({ box: panel({ w: 200, h: 60, r: 22, color: COL.panel3, slab: false, order: 3 }), t: txt('', { size: 26, maxW: 640, order: 4 }) }))
+  E.agents = ['builder', 'builder', 'reviewer', 'reviewer', 'harsh judge'].map((n) => ({ box: panel({ w: 470, h: 52, r: 12, color: COL.panel2, slab: false, order: 3 }),
+    dot: panel({ w: 12, h: 12, r: 6, color: COL.dim, slab: false, order: 4 }), t: txt(n, { size: 24, order: 4 }) }))
+  E.term = panel({ w: 760, h: 330, r: 16, color: '#101013', order: 2 })
+  E.termLine = txt('', { font: FONT.mono, size: 24, color: COL.dim, order: 4 })
+  E.speedLine = txt('', { font: FONT.mono, size: 17, color: COL.dim, maxW: 700, lh: 1.45, order: 4 })
+  E.fpsUnit = txt('fps', { font: FONT.uiM, size: 40, color: COL.dim, order: 4 })
+  E.dotsCard = panel({ w: 380, h: 330, r: 16, color: '#101013', order: 2 })
+  E.dotsDots = Array.from({ length: 21 }, () => panel({ w: 9, h: 9, r: 4.5, color: COL.text, slab: false, order: 4 }))
+  E.chipsLabel = txt('harsh judge, out of 10', { size: 22, color: COL.dim })
+  E.chips = facts.making_of.judge_out_of_10.map((v) => ({ box: panel({ w: 112, h: 58, r: 29, color: COL.panel2, slab: false, order: 3 }), t: txt(String(v), { font: FONT.uiS, size: 28, ax: 'center', order: 4 }) }))
+  E.bigChip = panel({ w: 300, h: 76, r: 38, color: COL.panel2, slab: false, order: 3 })
+  E.bigA = txt(`${facts.making_of.judge_out_of_10.at(-1)} / 10`, { font: FONT.uiS, size: 34, ax: 'center', order: 4 })
+  E.bigB = txt(`${facts.making_of.judge_out_of_1000_first_round} / 1000`, { font: FONT.uiS, size: 34, ax: 'center', order: 4 })
+  E.bigC = txt(`${facts.making_of.judge_out_of_1000_second_round} / 1000`, { font: FONT.uiS, size: 34, ax: 'center', order: 4 })
+  E.bigLabel = txt('first round', { size: 22, color: COL.dim, ax: 'right' }); E.bigLabel2 = txt('second round', { size: 22, color: COL.dim, ax: 'right' })
+  E.launcher = panel({ w: 150, h: 150, r: 34, color: COL.panel3, order: 3 })
+  E.launchMark = panel({ w: 64, h: 64, r: 32, color: COL.text, slab: false, order: 4 })
+  E.launchLabel = txt('Open Studio', { font: FONT.uiM, size: 26, ax: 'center', order: 4 })
+  E.cursor = makeCursor()
+  // the speed number: extruded digits whose depth is a spring (0.2% while flat), swapped through a mask line
+  digitFont = null
+}
+function makeCursor() {                                       // a plain arrow, drawn once as a shape (not any OS's cursor art)
+  const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0, -38); s.lineTo(10, -28); s.lineTo(18, -44); s.lineTo(24, -41); s.lineTo(16, -26); s.lineTo(30, -26); s.lineTo(0, 0)
+  const g = new THREE.Group()
+  const edge = new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color: '#0b0b0d', toneMapped: false })); edge.scale.setScalar(1.18); edge.position.set(-2, 2, 0)
+  const fill = new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color: COL.text, toneMapped: false })); fill.position.z = 0.5
+  edge.renderOrder = 20; fill.renderOrder = 21; g.add(edge, fill); scene.add(g); managed.push(g); return g
+}
+function tickMark(color, size, order = 6) {                   // a drawn tick (the UI fonts have no check glyph)
+  const s = new THREE.Shape(); s.moveTo(-0.5, 0.05); s.lineTo(-0.36, 0.2); s.lineTo(-0.12, -0.05); s.lineTo(0.38, 0.45); s.lineTo(0.52, 0.31); s.lineTo(-0.12, -0.33); s.lineTo(-0.5, 0.05)
+  const m = new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color, toneMapped: false })); m.geometry.scale(size, size, 1); m.renderOrder = order
+  scene.add(m); managed.push(m); return m
+}
+async function buildWords() {
+  // measure each wordmark letter once (troika's own metrics), so the squeeze keeps the letters touching
+  E.word.forEach((t) => (t.visible = true)); await syncAll()
+  E.wordW = E.word.map((t) => t.textRenderInfo.blockBounds[2] - t.textRenderInfo.blockBounds[0])
+  E.wordAdv = E.word.map((t) => t.textRenderInfo.blockBounds[2])
+  E.wordTotal = E.wordAdv.reduce((a, c) => a + c, 0)
+  const ttf = await new TTFLoader().loadAsync(FONT.word); digitFont = new Font(ttf)
+  E.num = {}
+  for (const s of ['7.7', '30']) {
+    const geo = new TextGeometry(s, { font: digitFont, size: 150, depth: 60, curveSegments: 6, bevelEnabled: false }); geo.computeBoundingBox()
+    const bb = geo.boundingBox; geo.translate(-(bb.max.x + bb.min.x) / 2, -(bb.max.y + bb.min.y) / 2, -60)
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: COL.text, roughness: 0.55, metalness: 0 }))
+    m.castShadow = true; m.renderOrder = 6; scene.add(m); managed.push(m); E.num[s] = m
+  }
+}
+
+
+// ================= START (flat, deep, flat): the start screen =================
+const WIN = { w: 1240, h: 1000 }
+const FACE_X = (k) => -505 + k * 170, MODEL_X = FACE_X
+const SHELF_NAMES = ['m2', 'm3', 'm4', 'm5']                 // the start screen's model cards (placeholders until settings/shelf.txt)
+const HELD = 'm1'                                            // the model dragged in (placeholder until the maker names it)
+const FINDER_FILES = ['workspace-7.glb', 'workspace-8.glb', 'workspace-9.glb', 'workspace-10.glb', 'workspace-11.glb']
+function faceCanvas(img, k) {
+  const c = document.createElement('canvas'); c.width = 280; c.height = 300; const g = c.getContext('2d')
+  if (img) { const s = Math.max(280 / img.width, 300 / img.height); g.drawImage(img, (280 - img.width * s) / 2, (300 - img.height * s) / 2 - 20, img.width * s, img.height * s) }
+  else { g.fillStyle = '#2b2b33'; g.fillRect(0, 0, 280, 300); g.fillStyle = '#3a3a44'; g.beginPath(); g.arc(140, 120, 52, 0, 7); g.fill(); g.beginPath(); g.ellipse(140, 300, 110, 90, 0, 0, 7); g.fill() }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t
+}
+async function buildStart() {
+  E.win = panel({ w: WIN.w, h: WIN.h, r: 16, color: COL.panel, order: 1 })
+  E.winTitle = txt('Face Swap Studio', { font: FONT.uiM, size: 26, color: COL.dim })
+  E.status = panel({ w: 210, h: 46, r: 23, color: COL.panel2, slab: false, order: 3 })
+  E.stReady = txt('Ready', { font: FONT.uiM, size: 22, ax: 'center', order: 4 }); E.stStart = txt('Starting', { font: FONT.uiM, size: 22, ax: 'center', order: 4 })
+  E.heads = ['1  Face', '2  Model', '3  Start'].map((h) => txt(h, { font: FONT.uiS, size: 30 }))
+  const you = await new THREE.TextureLoader().loadAsync('assets/faces/you.jpg').then((t) => t.image)
+  E.faces = [0, 1, 2, 3].map((k) => {
+    const card = panel({ w: 150, h: 196, r: 14, color: COL.panel2, order: 2 })
+    const img = new THREE.Mesh(QUAD, new THREE.MeshBasicMaterial({ map: faceCanvas(k === 0 ? you : null, k), toneMapped: false })); img.renderOrder = 3; scene.add(img); managed.push(img)
+    const tick = txt('Face found', { size: 17, color: COL.dim, ax: 'center', order: 4 }), mark = tickMark(COL.dim, 14)
+    return { card, img, tick, mark }
+  })
+  E.addPhoto = panel({ w: 150, h: 196, r: 14, color: COL.dim, slab: false, stroke: 2, order: 2 }); E.addPhotoT = txt('+ Add photo', { size: 20, color: COL.dim, ax: 'center' })
+  E.ring = panel({ w: 162, h: 208, r: 18, color: COL.accent, slab: false, stroke: 4, order: 6 })
+  E.mcards = SHELF_NAMES.map((n) => ({ card: panel({ w: 150, h: 150, r: 14, color: COL.panel2, order: 2 }), m: modelInstance(n), lab: txt('On shelf', { size: 17, color: COL.dim, ax: 'center', order: 4 }) }))
+  E.pick = panel({ w: 196, h: 56, r: 12, color: COL.panel3, slab: false, order: 2 }); E.pickT = txt('Pick from Finder', { font: FONT.uiM, size: 21, ax: 'center', order: 3 })
+  E.tray = panel({ w: 150, h: 150, r: 14, color: COL.faint, slab: false, stroke: 2, order: 2 })
+  E.heldCard = panel({ w: 150, h: 150, r: 14, color: COL.panel2, order: 2 }); E.held = modelInstance(HELD)
+  E.heldLab = txt('In hand', { size: 17, color: COL.text, ax: 'center', order: 4 })
+  E.finder = panel({ w: 430, h: 470, r: 16, color: '#1d1d22', order: 8 }); E.finderT = txt('Models', { font: FONT.uiS, size: 24, order: 9 })
+  E.files = FINDER_FILES.map((f) => ({ row: panel({ w: 390, h: 58, r: 10, color: '#26262d', slab: false, order: 9 }), t: txt(f, { font: FONT.ui, size: 21, order: 10 }) }))
+  E.ghost = panel({ w: 120, h: 120, r: 12, color: COL.panel3, slab: false, order: 11 }); E.ghostM = modelInstance(HELD)
+  E.toggles = ['Face swap', 'Hand object', 'Shelf', 'Virtual camera'].map((n) => ({ sw: panel({ w: 58, h: 32, r: 16, color: COL.panel3, slab: false, order: 3 }),
+    knob: panel({ w: 24, h: 24, r: 12, color: COL.text, slab: false, order: 4 }), t: txt(n, { size: 23, order: 3 }) }))
+  E.startBtn = panel({ w: 270, h: 86, r: 16, color: COL.accent, order: 3 })
+  E.lbStart = txt('Start cam', { font: FONT.uiS, size: 30, color: '#141416', ax: 'center', order: 5 }); E.lbStop = txt('Stop', { font: FONT.uiS, size: 30, color: '#141416', ax: 'center', order: 5 })
+}
+function startScene(t, b, lens) {
+  const ob = OB(b)
+  const L0 = { x: -CHAT.w / 2 + 44 + 75, y: -CHAT.h / 2 + 95 }            // the launcher's place in the chat
+  const st = ease((ob - 16.9) / 0.8)
+  const wx = lerp(L0.x, 0, st), wy = lerp(L0.y, 0, st), ww = lerp(150, WIN.w, st), wh = lerp(150, WIN.h, st)
+  E.win.visible = true; E.win.position.set(wx, wy, 6); E.win.set({ w: ww, h: wh, r: lerp(34, 16, st), color: new THREE.Color(COL.panel3).lerp(new THREE.Color(COL.panel), st) })
+  const z = 7, sh = clamp((ob - 17.5) / 0.4)                                // contents appear once the window is full size
+  if (sh <= 0) return
+  const X0 = -WIN.w / 2 + 44
+  E.winTitle.visible = true; E.winTitle.position.set(X0, WIN.h / 2 - 48, z)
+  E.heads.forEach((h, k) => { h.visible = true; h.position.set(X0, [WIN.h / 2 - 125, WIN.h / 2 - 430, WIN.h / 2 - 735][k], z) })
+  // status pill: Ready (27), Starting (28, through its own mask line)
+  const sp = pop(t, NB(27), 3)
+  if (sp > 0.01) {
+    const px = WIN.w / 2 - 44 - 105, py = WIN.h / 2 - 48
+    E.status.visible = true; E.status.position.set(px, py, z); E.status.scale.setScalar(tiny(sp))
+    E.stReady.userData.y0 = E.stStart.userData.y0 = py; E.stReady.position.x = E.stStart.position.x = px; E.stReady.position.z = E.stStart.position.z = z + 1
+    swapText(E.stReady, E.stStart, ease((ob - 28.15) / 0.3), 30)
+    E.stReady.clipRect = E.stReady.clipRect.map((v, i) => (i % 2 ? v : i ? 95 : -95)); E.stStart.clipRect = E.stStart.clipRect.map((v, i) => (i % 2 ? v : i ? 95 : -95))
+  }
+  // 1 Face: cards pop from zero with their Face found ticks (18); the cursor clicks one and the ring draws (19)
+  const FY = WIN.h / 2 - 280
+  E.faces.forEach((f, k) => {
+    const s = pop(t, NB(18 + k * 0.25), 3.2); if (s < 0.01) return
+    f.card.visible = f.img.visible = true; f.card.position.set(FACE_X(k), FY, z); f.card.scale.setScalar(tiny(s))
+    f.img.position.set(FACE_X(k), FY + 14 * s, z + 1); f.img.scale.set(136 * s, 146 * s, 1)
+    f.tick.visible = f.mark.visible = s > 0.5; f.tick.position.set(FACE_X(k) + 10, FY - 80 * s, z + 1); f.tick.scale.setScalar(tiny(s))
+    f.mark.position.set(FACE_X(k) - 52 * s, FY - 80 * s, z + 1); f.mark.scale.setScalar(tiny(s))
+  })
+  const ap = pop(t, NB(19), 3.2); if (ap > 0.01) { E.addPhoto.visible = E.addPhotoT.visible = true; E.addPhoto.position.set(FACE_X(4), FY, z); E.addPhoto.scale.setScalar(tiny(ap)); E.addPhotoT.position.set(FACE_X(4), FY, z + 1) }
+  const rp = ease((ob - 19.25) / 0.5); if (rp > 0) { E.ring.visible = true; E.ring.position.set(FACE_X(0), FY, z + 2); E.ring.set({ prog: rp, stroke: 4 }) }
+  // 2 Model: model cards pop in, each holding its model squashed flat at the thumbnail angle
+  const MY = WIN.h / 2 - 580
+  const cross = clamp(lens)                                                // 0 flat .. 1 deep (the lens opens on 23)
+  E.mcards.forEach((c, k) => {
+    const s = pop(t, NB(20 + k * 0.25), 3.2); if (s < 0.01) return
+    c.card.visible = true; c.card.position.set(MODEL_X(k), MY, z); c.card.scale.setScalar(tiny(s))
+    c.m.place(V(MODEL_X(k), MY, z + 2), 132 * s, Q_THUMB, 0, V(0, 0, 1), V(0, 0, z + 2))
+    const ls = pop(t, NB(24 + k * 0.25), 3.4); c.lab.visible = ls > 0.02; c.lab.position.set(MODEL_X(k), MY - 92, z + 1); c.lab.scale.setScalar(tiny(ls))
+  })
+  const pk = pop(t, NB(20.3), 3); if (pk > 0.01) { E.pick.visible = E.pickT.visible = true; E.pick.position.set(FACE_X(4) + 20, MY, z); E.pick.scale.setScalar(tiny(pk)); E.pickT.position.set(FACE_X(4) + 20, MY, z + 1) }
+  // Finder slides in from the edge (20.5), long-press on a file (21), drag (21.3..21.9), tray lights, drop (22)
+  const fi = on(t, NB(20.5), 2, 0.95) - on(t, NB(22.3), 2, 0.95)
+  const FX = lerp(WIN.w / 2 + 420, WIN.w / 2 - 200, fi), FYY = MY + 40
+  if (fi > 0.001) {
+    E.finder.visible = E.finderT.visible = true; E.finder.position.set(FX, FYY, z + 4); E.finderT.position.set(FX - 190, FYY + 200, z + 5)
+    E.files.forEach((f, k) => { f.row.visible = f.t.visible = true; const y = FYY + 130 - k * 66; f.row.position.set(FX, y, z + 5); f.t.position.set(FX - 170, y, z + 6)
+      f.row.set({ color: k === 0 && ob > 20.9 && ob < 22 ? COL.panel3 : '#26262d' }) })
+  }
+  const TX = FACE_X(4) + 190, drag = ease((ob - 21.3) / 0.6), dropped = ob >= 22
+  const trayOn = ob > 21.2 && ob < 22.2
+  E.tray.visible = pk > 0.01 && !dropped; E.tray.position.set(TX, MY, z); E.tray.set({ color: trayOn ? COL.accent : COL.faint, stroke: 2, dash: 14 })
+  if (ob > 21.05 && !dropped) {
+    const gx = lerp(FX - 120, TX, drag), gy = lerp(FYY + 130, MY, drag)
+    E.ghost.visible = true; E.ghost.position.set(gx, gy, z + 8); E.ghostM.place(V(gx, gy, z + 9), 100, Q_THUMB, 0, V(0, 0, 1), V(0, 0, z + 9))
+  }
+  // the dropped model's card springs in, "In hand". Its picture is the model itself held flat, so on 23 it stands up.
+  const hs = dropped ? pop(t, NB(22), 3.4) : 0
+  if (hs > 0.01) {
+    E.heldCard.visible = true; E.heldCard.position.set(TX, MY, z); E.heldCard.scale.setScalar(tiny(hs))
+    E.heldLab.visible = true; E.heldLab.position.set(TX, MY - 92, z + 1)
+    // stand up (23..25): squash springs to full depth, it turns from the thumbnail angle to face the camera, drops its shadow
+    const up = on(t, NB(23.2), 1.6, 0.8) - on(t, NB(26), 2.2, 0.95)
+    const camQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, (camAt(t).yaw), 0))
+    const q = Q_THUMB.clone().slerp(camQ, clamp(up)), d = lerp(132 * hs, 300, clamp(up))
+    E.held.place(V(TX, MY + lerp(0, 60, clamp(up)), z + 2 + lerp(0, 190, clamp(up))), d, q, lerp(0.002, 1, clamp(up)), V(0, 0, 1), V(TX, MY, z + 2))
+  }
+  // 3 Start: the four switches come on one per sixteenth (27); Start cam (28): label -> Stop through its own mask line
+  const SY = -WIN.h / 2 + 170
+  E.toggles.forEach((g, k) => {
+    const x = X0 + k * 250, onK = ease((ob - 27 - k * 0.25) / 0.2)
+    g.sw.visible = g.knob.visible = g.t.visible = true
+    g.sw.position.set(x + 29, SY, z); g.sw.set({ color: new THREE.Color(COL.panel3).lerp(new THREE.Color(COL.accent), onK) })
+    g.knob.position.set(x + 17 + 24 * onK, SY, z + 1); g.t.position.set(x + 72, SY, z)
+  })
+  const bx = WIN.w / 2 - 44 - 135, by = -WIN.h / 2 + 90
+  const press = 1 - 0.05 * Math.exp(-Math.max(0, t - at(NB(28))) * 14) * (ob > 28)
+  E.startBtn.visible = true; E.startBtn.position.set(bx, by, z); E.startBtn.scale.setScalar(press)
+  E.lbStart.userData.y0 = E.lbStop.userData.y0 = by; E.lbStart.position.x = E.lbStop.position.x = bx; E.lbStart.position.z = E.lbStop.position.z = z + 1
+  swapText(E.lbStart, E.lbStop, ease((ob - 28.1) / 0.3), 40)
+  E.lbStart.clipRect = E.lbStart.clipRect.map((v, i) => (i % 2 ? v : i ? 130 : -130)); E.lbStop.clipRect = E.lbStop.clipRect.map((v, i) => (i % 2 ? v : i ? 130 : -130))
+  // the cursor: face click (19), long-press + drag the file (21..22), press Start cam (28)
+  const cur = E.cursor; cur.visible = true
+  const path = [[17.4, L0.x + 10, L0.y - 10], [18.9, FACE_X(0) + 30, FY - 20], [19.4, FACE_X(0) + 30, FY - 20], [20.8, FX - 120, FYY + 126], [21.3, FX - 120, FYY + 126], [21.9, TX, MY - 4], [22.4, TX + 60, MY - 60], [27.6, bx + 20, by - 10], [29, bx + 20, by - 10]]
+  let i = path.findIndex((p) => p[0] > ob); if (i < 0) i = path.length; const p0 = path[Math.max(0, i - 1)], p1 = path[Math.min(path.length - 1, i)]
+  const u = p1 === p0 ? 1 : ease((ob - p0[0]) / (p1[0] - p0[0]))
+  cur.position.set(lerp(p0[1], p1[1], u), lerp(p0[2], p1[2], u), z + 20)
+}
+
+
+// ================= LIVE .. CLOSE: the real hand drives everything (beats on the one-minute grid) =================
+const CARD = { x: 0, y: 0, z: 0, w: 1280, h: 720 }          // the hand clip card: 1 unit per picture pixel
+const u = CARD.w / 1280
+let TCH                                                      // touches measured in the picture (tools/touches.py)
+const SL = {}                                                 // slices: clip time = anchor clip + (t - anchor time)
+const clipOf = (name, t) => SL[name].c0 + (t - SL[name].t0)
+const cardPt = (px, z = CARD.z) => V(CARD.x + (px[0] - 640) * u, CARD.y + (360 - px[1]) * u, z)
+// a stand-in picture until the real clips arrive (the hand clip and the live recordings are not in this session yet)
+function standIn(label, sub, tag) {
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 720; const g = c.getContext('2d')
+  g.fillStyle = '#18181c'; g.fillRect(0, 0, 1280, 720); g.strokeStyle = '#222228'; g.lineWidth = 2
+  for (let x = 0; x <= 1280; x += 80) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 720); g.stroke() }
+  for (let y = 0; y <= 720; y += 80) { g.beginPath(); g.moveTo(0, y); g.lineTo(1280, y); g.stroke() }
+  g.fillStyle = '#6d6a66'; g.font = '500 34px Geist, sans-serif'; g.textAlign = 'center'; g.fillText(label, 640, 350); g.font = '400 22px monospace'; g.fillText(sub, 640, 395)
+  if (tag) drawTag(g, 1280, 720)
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t
+}
+// the app's tag (faceswap/outputs/virtualcam.py draw_badge): white "AI effect" on a rounded rgb(20,20,20) box at 60%,
+// bottom-left, text 3% of the picture height, margin 2%
+function drawTag(g, w, h) {
+  const fs = Math.max(12, h * 0.03), m = h * 0.02; g.font = `500 ${fs}px Geist, sans-serif`
+  const tw = g.measureText('AI effect').width, pw = tw + fs * 0.9, ph = fs * 1.6
+  g.fillStyle = 'rgba(20,20,20,0.6)'; g.beginPath(); g.roundRect(m, h - m - ph, pw, ph, ph * 0.28); g.fill()
+  g.fillStyle = '#ffffff'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('AI effect', m + fs * 0.45, h - m - ph / 2)
+}
+const LIVE_CLIPS = [[45, 'live: open hand'], [57, 'live: pinch and turn'], [71, 'live: zoom'], [84, 'live: two quick pinches'], [93, 'live: pull off the shelf'], [105, 'live: hand in front of the face']]
+function imagePlane(tex, order, parent = scene) { const m = new THREE.Mesh(QUAD, new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, transparent: true })); m.renderOrder = order; parent.add(m); managed.push(m); return m }
+
+function buildLive() {
+  TCH = window.__touches
+  for (const s of plan.slices) SL[s.name] = { c0: s.anchor[0], t0: s.anchor[1], from: s.from_beat, to: s.to_beat, ppm: hand.medianPpm(s.in_s, s.out_s) }
+  // flood + the live card and its corner pill
+  E.flood = panel({ w: 270, h: 86, r: 16, color: COL.accent, slab: false, order: 30 })
+  E.liveTex = LIVE_CLIPS.map(([, l]) => standIn(l, 'your recording from output/ goes here', true))
+  E.live = panel({ w: 1280, h: 720, r: 16, color: '#18181c', order: 10 }); E.liveImg = imagePlane(E.liveTex[0], 11)
+  E.runPill = panel({ w: 250, h: 50, r: 25, color: COL.accent, slab: false, order: 31 })
+  E.runText = txt('Running 30 fps', { font: FONT.uiS, size: 22, color: '#141416', ax: 'center', order: 32 })
+  // the corner card: a second pass in output pixels
+  E.corner = new THREE.Group(); ov.add(E.corner); managed.push(E.corner)
+  E.cornerImgs = [0, 1].map(() => { const m = new THREE.Mesh(QUAD, new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true })); E.corner.add(m); return m })
+  E.cornerFrame = new THREE.Mesh(QUAD, panelMat()); E.cornerFrame.renderOrder = -1; E.corner.add(E.cornerFrame)
+  // the hand clip card
+  E.clipTex = standIn('your hand clip goes here', 'samples/hand_sample_20260927_003450.mp4', false)
+  E.clip = panel({ w: 1280, h: 720, r: 16, color: '#18181c', order: 1 }); E.clipImg = imagePlane(E.clipTex, 2)
+  E.strip = panel({ w: 1280, h: 104, r: 16, color: COL.panel, order: 1 })
+  const hr = facts.making_of.hand_recording
+  E.stripTexts = [`${hr.length_seconds} s`, `${hr.frames} frames`, `hand in ${hr.frames_with_the_hand}`].map((s) => txt(s, { font: FONT.mono, size: 22, color: COL.dim, order: 3 }))
+  E.playhead = panel({ w: 4, h: 88, r: 2, color: COL.text, slab: false, order: 4 })
+  E.stripTile = panel({ w: 84, h: 84, r: 12, color: COL.panel2, slab: false, order: 3 })
+  // the 3D hand: 21 spheres + bones; the same spheres are the flat dots (unlit while flat, with a dark edge)
+  const hm = new THREE.MeshStandardMaterial({ color: COL.text, roughness: 0.45, emissive: new THREE.Color(COL.text), emissiveIntensity: 1 })
+  E.hand = { mat: hm, J: [], Bn: [], edge: [] }
+  for (let j = 0; j < 21; j++) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), hm); s.castShadow = true; s.renderOrder = 12; scene.add(s); managed.push(s); E.hand.J.push(s)
+    const e = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({ color: '#0b0b0d', toneMapped: false })); e.renderOrder = 11; scene.add(e); managed.push(e); E.hand.edge.push(e)
+  }
+  hand.BONES.forEach(() => { const c = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 12), hm); c.castShadow = true; c.renderOrder = 12; scene.add(c); managed.push(c); E.hand.Bn.push(c) })
+  E.pring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.09, 10, 64), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false })); E.pring.renderOrder = 40; scene.add(E.pring); managed.push(E.pring)
+  // the held model: drawn after the hand with no depth test against it (the app draws it over the fingers)
+  E.hm = modelInstance(HELD); E.hm.traverse((m) => m.layers.set(2)); key.shadow.camera.layers.enable(2)
+  E.popM = modelInstance(SHELF_NAMES[2]); E.popM.traverse((m) => m.layers.set(2))       // the model pulled off the shelf
+  E.shelfM = SHELF_NAMES.concat(['m6']).map((n) => { const m = modelInstance(n); return m })
+  E.tiles = [0, 1, 2, 3, 4, 5].map(() => panel({ w: 96, h: 96, r: 14, color: COL.panel2, order: 2 }))
+  E.band = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: COL.text, roughness: 0.5 })); E.band.castShadow = true; scene.add(E.band); managed.push(E.band)
+  E.shelfLab = txt(`Up to ${facts.app.shelf_models_max} on the shelf`, { font: FONT.uiM, size: 30, order: 6 })
+  E.ruler = panel({ w: 6, h: 420, r: 3, color: COL.dim, order: 5 }); E.rTicks = [0, 1, 2, 3, 4].map(() => panel({ w: 30, h: 5, r: 2, color: COL.text, slab: false, order: 6 }))
+  // app words and captions in the scene
+  E.appWords = ['fingers met: pinch or zoom?', 'ZOOM: resizing'].map((w) => txt(w, { font: FONT.mono, size: 26, color: COL.text, order: 6 }))
+  E.zero = txt('zoom recognised before the fix: 0%', { font: FONT.uiM, size: 30, maxW: 560, ay: 'top', order: 6 })
+  E.hundred = txt('measured in the picture, a prototype of the fix: 100%', { font: FONT.uiM, size: 30, maxW: 560, ay: 'top', order: 6 })
+  E.qb = [3, 5, 4].map((qi) => ({ qi, box: panel({ w: 200, h: 60, r: 22, color: COL.panel3, slab: false, order: 7 }), t: txt(facts.maker_quotes.lines[qi], { size: 26, maxW: 520, order: 8 }) }))
+  // the call: a plain grid, initials only
+  E.callBg = panel({ w: 1440, h: 1440, r: 0, color: COL.bg, slab: false, order: 50 })     // the room's own colour
+  E.callTiles = ['AM', 'JR', 'KS', 'TL', 'NO'].map((n) => ({ box: panel({ w: 440, h: 248, r: 16, color: COL.panel2, slab: false, order: 51 }),
+    av: panel({ w: 84, h: 84, r: 42, color: COL.panel3, slab: false, order: 52 }), t: txt(n, { font: FONT.uiS, size: 30, color: COL.dim, ax: 'center', order: 53 }) }))
+  E.mainTile = panel({ w: 440, h: 248, r: 16, color: '#18181c', slab: false, order: 54 }); E.mainImg = imagePlane(E.liveTex[5], 55)
+  E.camBtn = panel({ w: 160, h: 52, r: 26, color: COL.panel3, slab: false, order: 56 }); E.camBtnT = txt('Camera', { font: FONT.uiM, size: 22, ax: 'center', order: 57 })
+  E.menu = panel({ w: 380, h: 150, r: 14, color: '#232329', slab: false, order: 58 })
+  E.menuItems = ['Built-in camera', 'OBS Virtual Camera'].map((n) => txt(n, { size: 24, order: 59 })); E.menuHl = panel({ w: 356, h: 50, r: 10, color: COL.panel3, slab: false, order: 58.5 })
+  E.menuTick = tickMark(COL.text, 22, 60)
+  E.hands = txt(facts.app.what_it_does[6].split(',')[0], { font: FONT.uiS, size: 40, order: 60 })
+  E.lock = panel({ w: 820, h: 76, r: 38, color: COL.text, slab: false, order: 61 })
+  E.lockT = txt(facts.app.runs_on.split('. ').slice(1).join('. '), { font: FONT.uiM, size: 26, color: '#141416', ax: 'center', order: 62 })
+  simulate()
+}
+
+// ---------- the model obeys the app (effect.py, rotation.py, pose.py), simulated once over each slice at 30 Hz ----------
+const touching = (i, a, b) => i >= a && (b == null || i < b)
+function palmFrame(i) {                                        // palm normal (toward the camera) and the hand's up, metres
+  const m = hand.metresFrame(i), n = m[5].clone().sub(m[0]).cross(m[17].clone().sub(m[0])).normalize()
+  if (n.z < 0) n.negate(); const up = m[9].clone().sub(m[0]).normalize(); return { n, up, m }
+}
+function simulate() {
+  // per clip frame: model position (metres, relative to the palm centre's placement), orientation, size multiplier
+  const N = hand.N, R = []
+  const pinch = TCH.touches[0], zoom = TCH.zoom, taps = TCH.touches.filter((t) => t.dur_s && t.dur_s < 0.5).slice(0, 2)
+  let q = new THREE.Quaternion(), yaw = 0, pitch = 0, v = 0, frozen = null, lastPinch = null, glideFrom = null, glideT = 1e9, size = 1, face = null
+  const pp = (i) => { const p = hand.pic[hand.nearest(i)]; return [(p[4][0] + p[8][0]) / 2, (p[4][1] + p[8][1]) / 2] }
+  for (let i = 0; i < N; i++) {
+    const t = i / 30, { n, up } = palmFrame(i)
+    // follow: 0.06 m above the palm centre along its normal, tilted at most 45 degrees
+    const tilt = new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), up); const ang = 2 * Math.acos(Math.min(1, Math.abs(tilt.w)))
+    if (ang > Math.PI / 4) tilt.slerp(new THREE.Quaternion(), 1 - Math.PI / 4 / ang).normalize()
+    const follow = n.clone().multiplyScalar(0.06)
+    const pinched = touching(i, pinch.start_f, pinch.end_f)
+    if (pinched) {
+      if (!frozen) { frozen = { at: follow.clone(), palm: hand.palmPx[hand.nearest(i)] }; lastPinch = pp(i) }
+      const p = pp(i), dx = p[0] - lastPinch[0], dy = p[1] - lastPinch[1]; lastPinch = p
+      const dYaw = (2 * Math.PI * dx) / 640; yaw += dYaw; v = 0.6 * v + 0.4 * dYaw * 30
+      pitch = clamp(pitch + (2 * Math.PI * dy) / 640, -Math.PI / 3, Math.PI / 3)
+    } else if (frozen) { glideFrom = { at: frozen.at, palm: frozen.palm, i }; frozen = null }
+    if (!pinched) {
+      v *= Math.pow(0.5, 1 / 30 / 0.6); yaw += v / 30                              // the spin coasts (half-life 0.6 s)
+      if (Math.abs(v) < 0.08) {                                                      // settled: face front within 20 deg, else stand upright
+        const w = 1 - Math.pow(0.5, 1 / 30 / 0.12), wrap = Math.atan2(Math.sin(yaw), Math.cos(yaw))
+        if (Math.abs(wrap) < (20 * Math.PI) / 180) yaw = yaw - wrap * w
+        pitch *= 1 - w
+      }
+    }
+    // two quick pinches: turn to face the camera the short way in 0.25 s
+    if (taps.length === 2 && i === taps[1].start_f) face = { i, from: new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')) }
+    let qq = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'))
+    if (face) { const k = clamp((i - face.i) / 7.5); qq = face.from.clone().slerp(new THREE.Quaternion(), ease(k)); if (k >= 1) { yaw = 0; pitch = 0 } }
+    // three fingers: neither moves nor turns; size = size at meeting x 2^(-dy / 0.25), dy in picture heights, up negative
+    if (i >= zoom.middle_joined_f && i < zoom.let_go_f) { const p0 = pp(zoom.fingertips_met_f), p = pp(i); size = clamp(Math.pow(2, -((p[1] - p0[1]) / 720) / 0.25), 0.3, 4) }
+    // position: frozen while pinched; after letting go it glides back to the palm over 0.3 s
+    let pos = frozen ? { at: frozen.at, palm: frozen.palm } : { at: follow, palm: null }
+    if (!frozen && glideFrom && i - glideFrom.i < 9) pos = { at: glideFrom.at, palm: glideFrom.palm, glide: (i - glideFrom.i) / 9 }
+    R.push({ q: qq.multiply(tilt.clone().slerp(new THREE.Quaternion(), pinched ? 1 : 0.6)), pos, size })
+  }
+  sim.R = R
+}
+
+// ---------- where the hand is, and how deep ----------
+function handPose(t, b) {
+  // which clip time drives the hand now: live slice, the scrub, the zoom slice, then the shelf slice (0.3 s slerp across the jump)
+  let c, name
+  if (b < 67) { name = 'live'; c = clipOf('live', t) }
+  else if (b < 71) { name = 'live'; c = lerp(clipOf('live', at(67)), clipOf('zoom', at(71)), ease((b - 67) / 4)) }
+  else if (b < 90.5) { name = 'zoom'; c = clipOf('zoom', t) }
+  else { name = 'shelf'; c = clipOf('shelf', t) }
+  return { c, name, i: hand.frameOf(c) }
+}
+function jointsAt(c, i, S, deepK, cardZ) {
+  const m = hand.metresAt(c), P = hand.pic[hand.nearest(i)]
+  const f = c * 30 - 0.5, i0 = hand.nearest(Math.floor(f)), i1 = hand.nearest(Math.floor(f) + 1), w = clamp(f - Math.floor(f))
+  const pa = hand.palmPx[i0], pb = hand.palmPx[i1], palm = [lerp(pa[0], pb[0], w), lerp(pa[1], pb[1], w)]
+  const base = cardPt(palm, cardZ), D0 = 0.1 * S
+  const kxy = clamp(deepK)
+  return m.map((v, j) => {
+    const flat = cardPt(P[j], cardZ + 1.5), deep = base.clone().add(V(v.x * S, v.y * S, D0 + v.z * S))
+    return V(lerp(flat.x, deep.x, kxy), lerp(flat.y, deep.y, kxy), deepK > 0.0015 ? deep.z : flat.z)
+  })
+}
+function drawHand(P, { lit = 1, dotR = 9, boneR = 4.5, grow = null, bones = 1, edge = 0 }) {
+  const H = E.hand
+  H.mat.color.set(COL.text).multiplyScalar(lit); H.mat.emissive.set(COL.text).multiplyScalar(1 - lit)
+  P.forEach((p, j) => {
+    const g = grow ? grow[j] : 1; if (g < 0.01) return
+    H.J[j].visible = true; H.J[j].position.copy(p); H.J[j].scale.setScalar(dotR * g)
+    if (edge > 0.01) { H.edge[j].visible = true; H.edge[j].position.copy(p).add(V(0, 0, -0.5)); H.edge[j].scale.setScalar((dotR + 3 * edge) * g) }
+  })
+  hand.BONES.forEach(([a, c], k) => {
+    const bw = typeof bones === 'number' ? bones : bones[k]; if (bw < 0.01) return
+    const pa = P[a], pc = P[c], d = pc.clone().sub(pa), L = d.length() * bw; if (L < 0.5) return
+    const cyl = H.Bn[k]; cyl.visible = true; cyl.position.copy(pa).addScaledVector(d.normalize(), L / 2)
+    cyl.quaternion.setFromUnitVectors(V(0, 1, 0), d); cyl.scale.set(boneR, L, boneR)
+  })
+}
+function place(e, x, y, z, s = 1) { e.visible = true; e.position.set(x, y, z); e.scale.setScalar(tiny(s)) }
+const pushT = (t, beat) => ease((t - at(beat)) / 0.35)
+
+function liveScene(t, b, cs, lens) {
+  // ---- 45: the drop. Start cam's accent shape floods out, then contracts into the Running pill, uncovering the live card ----
+  const bx = WIN.w / 2 - 44 - 135, by = -WIN.h / 2 + 90
+  const fl = ease((b - 45) / 0.6), ct = ease((b - 45.9) / 0.7)
+  if (b < 47.5) {
+    const FW = 4200, px = CARD.w / 2 - 40 - 125, py = CARD.h / 2 - 40 - 25
+    const w = ct > 0 ? lerp(FW, 250, ct) : lerp(270, FW, fl), h = ct > 0 ? lerp(FW, 50, ct) : lerp(86, FW, fl)
+    const x = ct > 0 ? lerp(0, px, ct) : lerp(bx, 0, fl), y = ct > 0 ? lerp(0, py, ct) : lerp(by, 0, fl)
+    E.flood.visible = true; E.flood.position.set(x, y, 40); E.flood.set({ w, h, r: ct > 0 ? lerp(0, 25, ct) : lerp(16, 0, fl), color: COL.accent })
+  }
+  // the live card, then (48) it shrinks into the top-right corner and hands over to the corner card on the exact frame
+  const sh = ease((b - 47.6) / 0.9), CORNER = { x: W - 40 - 190, y: W - 40 - 107, w: 380, h: 214 }
+  if (b >= 45.3 && sh < 1) {
+    // the corner rectangle, un-projected onto the card's plane, so the shrink ends exactly where the corner card starts
+    const tl = unproject(CORNER.x - CORNER.w / 2, CORNER.y + CORNER.h / 2), br = unproject(CORNER.x + CORNER.w / 2, CORNER.y - CORNER.h / 2)
+    const cx = lerp(0, (tl.x + br.x) / 2, sh), cy = lerp(0, (tl.y + br.y) / 2, sh), w = lerp(1280, br.x - tl.x, sh), h = lerp(720, tl.y - br.y, sh)
+    E.live.visible = true; E.live.position.set(cx, cy, 20); E.live.set({ w, h })
+    E.liveImg.visible = true; E.liveImg.material.map = E.liveTex[0]; E.liveImg.position.set(cx, cy, 21); E.liveImg.scale.set(w, h, 1)
+    if (ct > 0.02 && b < 47.5) { E.runPill.visible = E.runText.visible = true; const px = cx + w / 2 - 40 - 125 * w / 1280, py = cy + h / 2 - 40 * h / 720 - 25 * h / 720
+      E.runPill.position.set(cx + (CARD.w / 2 - 40 - 125) * w / 1280, cy + (CARD.h / 2 - 40 - 25) * h / 720, 41); E.runText.position.set(E.runPill.position.x, E.runPill.position.y, 42) }
+  }
+  // the corner card: from 48.5 to the call it plays the live recording of what the hand is doing; a new clip pushes the old out
+  if (b >= 47.6 + 0.9 && b < 101) cornerCard(t, b, CORNER, 1)
+  // ---- 49: my hand clip pushes up from below on a flat card ----
+  const up = on(t, 49, 1.6, 0.95), sink = ease((b - 89) / 1.4)
+  const pose = handPose(t, b)
+  const cardZ = CARD.z
+  if (up > 0.001 && sink < 1) {
+    // pushes up from below (49); sinks into the floor through a mask line at its own bottom edge while it still plays (89)
+    const y = lerp(-1500, 0, up) - sink * CARD.h, maskY = CARD.y - CARD.h / 2
+    E.clip.visible = true; E.clip.position.set(CARD.x, CARD.y + y, cardZ); E.clip.set({ w: CARD.w, h: CARD.h, clip: sink > 0 ? [-1e5, maskY - (CARD.y + y), 1e5, 1e5] : null })
+    E.clipImg.visible = true; E.clipImg.position.set(CARD.x, CARD.y + y, cardZ + 1); E.clipImg.scale.set(CARD.w, CARD.h, 1)
+    E.clipImg.material.clippingPlanes = sink > 0 ? [new THREE.Plane(V(0, 1, 0), -maskY)] : null
+  }
+  // timeline strip (66..89): grows out of the card's lower edge; the playhead scrubs ahead to the zoom (67..71)
+  const sg = ease((b - 66) / 0.6) * (1 - ease((b - 88.5) / 0.6))
+  if (sg > 0.001) {
+    const y = CARD.y - CARD.h / 2 - 70
+    E.strip.visible = true; E.strip.position.set(CARD.x, y, cardZ); E.strip.set({ w: CARD.w, h: lerp(4, 104, sg) })
+    E.stripTexts.forEach((tx, k) => place(tx, CARD.x - CARD.w / 2 + 130 + k * 230, y, cardZ + 2, sg))
+    const phx = CARD.x - CARD.w / 2 + 40 + (pose.c / 47) * (CARD.w - 80)
+    place(E.playhead, phx, y, cardZ + 3, sg)
+    place(E.stripTile, CARD.x + CARD.w / 2 - 80, y, cardZ + 2, sg)
+  }
+  // ---- the hand: dots over the clip, then the 3D hand (the camera's lens decides how deep) ----
+  if (b < 49.2 || sink >= 1 && b < 90.5) return
+  const S = u * SL[pose.name === 'shelf' ? 'shelf' : pose.name].ppm
+  let deepK = clamp(lens)
+  if (b >= 101) deepK = clamp(lens)
+  let P = jointsAt(pose.c, pose.i, S, deepK, cardZ + (b < 89 ? lerp(-1500, 0, up) * 0 : 0))
+  // across the jump to the shelf slice the 3D hand slerps from the pose before to the pose after in 0.3 s
+  if (b >= 90.5 && b < 90.5 + 0.6) {
+    const P0 = jointsAt(clipOf('zoom', at(90.5)), hand.frameOf(clipOf('zoom', at(90.5))), S, 1, cardZ), w = ease((b - 90.5) / 0.6)
+    P = P.map((p, j) => P0[j].clone().lerp(p, w))
+  }
+  // 51..52: the cursor slides onto my index fingertip and becomes its dot; the other 20 grow out along the bones; bones draw
+  const grow = new Array(21).fill(0), order = [8, 7, 6, 5, 0, 9, 13, 17, 1, 10, 14, 18, 2, 11, 15, 19, 3, 12, 16, 20, 4]
+  order.forEach((j, k) => (grow[j] = j === 8 ? (b >= 51.6 ? 1 : 0) : S_(t, 51.7 + k * 0.05)))
+  const boneK = clamp((b - 52.4) / 0.6)
+  drawHand(P, { lit: deepK, grow: b < 53 ? grow : null, bones: b < 53 ? boneK : 1, edge: 1 - deepK })
+  if (b >= 50.6 && b < 51.7) { const cur = E.cursor; cur.visible = true; const k = ease((b - 50.6) / 0.9), tip = P[8]; cur.position.set(lerp(tip.x + 300, tip.x, k), lerp(tip.y - 200, tip.y, k), 30) }
+  // pinch ring: from the picture's touch, never from the beat
+  const i = pose.i, pch = TCH.touches[0], taps = TCH.touches.filter((x) => x.dur_s && x.dur_s < 0.5).slice(0, 2)
+  const inTouch = (x) => i >= x.start_f && (x.end_f == null || i < x.end_f)
+  const ringOn = (pose.name !== 'zoom' && inTouch(pch)) || (pose.name === 'zoom' && taps.some(inTouch))
+  if (ringOn && deepK > 0.05) { const tip = P[4].clone().add(P[8]).multiplyScalar(0.5); E.pring.visible = true; E.pring.position.copy(tip); E.pring.quaternion.copy(camera.quaternion); E.pring.scale.setScalar(26) }
+  // ---- the held model ----
+  const modelOn = b >= 54 && b < 101
+  if (modelOn) heldModel(t, b, pose, P, S, deepK)
+  // flat bubble quotes (the maker said yes)
+  const qb = (k, beat, x, y) => { const e = E.qb[k], s = pop(t, beat, 3) * (1 - ease((b - beat - 5) / 0.4)); if (s < 0.01) return
+    const q = facts.maker_quotes.lines[e.qi], bw = Math.min(560, 40 + q.length * 13.2), bh = 34 + Math.ceil(q.length / 34) * 33
+    // flat bubbles face the lens (the camera circles in deep); the text sits 1 unit in front of its bubble
+    const Qc = camera.quaternion, off = V(-bw / 2 + 22, 0, 1).applyQuaternion(Qc)
+    e.box.visible = e.t.visible = true; e.box.position.set(x, y, 30); e.box.quaternion.copy(Qc); e.box.set({ w: bw, h: bh }); e.box.scale.setScalar(tiny(s))
+    e.t.position.set(x, y, 30).addScaledVector(off, s); e.t.quaternion.copy(Qc); e.t.scale.setScalar(tiny(s)) }
+  qb(0, 57.5, -300, 470); qb(1, 67.5, -300, 470); qb(2, 83.5, -300, 480)
+  // breakdown words (the app's own words and the finding)
+  if (b >= 72 && b < 76.2) place(E.zero, -740, 440, 30, pop(t, 72, 3))
+  if (b >= 75 && b < 77) { const w = b < 75.9 ? 0 : 1; place(E.appWords[w], -100, 300, 30, pop(t, w ? 75.9 : 75.1, 3)) }
+  if (b >= 76 && b < 80) place(E.hundred, -740, 440, 30, pop(t, 76, 3))
+  if (b >= 91.5 && b < 101) place(E.shelfLab, CARD.x - 600, CARD.y + 520, 30, pop(t, 93.5, 3))
+}
+const S_ = (t, beat) => pop(t, beat, 4)
+function unproject(px, py) {                                   // output pixel -> point on the card plane (z = 20)
+  const ndc = V((px / W) * 2 - 1, (py / W) * 2 - 1, 0.5).unproject(camera), dir = ndc.sub(camera.position).normalize()
+  return camera.position.clone().addScaledVector(dir, (20 - camera.position.z) / dir.z)
+}
+function cornerCard(t, b, R, k) {
+  E.corner.visible = true; E.corner.position.set(R.x, R.y, 0)
+  E.cornerFrame.material.uniforms.uSize.value.set(R.w + 6, R.h + 6); E.cornerFrame.material.uniforms.uR.value = 14; E.cornerFrame.material.uniforms.uCol.value.set('#0b0b0d')
+  // the clip whose gesture started most recently pushes the previous one out to the left on its beat
+  let n = 0; LIVE_CLIPS.forEach(([beat], j) => { if (b >= beat) n = j })
+  const p = n > 0 ? pushT(t, LIVE_CLIPS[n][0]) : 1
+  const [a, c] = E.cornerImgs
+  a.visible = true; a.material.map = E.liveTex[n]; a.position.set(lerp(R.w, 0, p), 0, 1); a.scale.set(R.w, R.h, 1)
+  if (p < 1 && n > 0) { c.visible = true; c.material.map = E.liveTex[n - 1]; c.position.set(lerp(0, -R.w, p), 0, 0.5); c.scale.set(R.w, R.h, 1) }
+  // clip to the card (drawn with the frame's rounded mask by keeping both inside the frame's width)
+  a.material.opacity = 1
+}
+function heldModel(t, b, pose, P, S, deepK) {
+  const R = sim.R[pose.i]; if (!R) return
+  const palm = PALM_J.reduce((s, j) => s.add(P[j]), V()).multiplyScalar(1 / 5)
+  // where the model is: frozen spots are stored relative to where the palm was in the picture
+  let at_ = palm.clone().add(R.pos.at.clone().multiplyScalar(S))
+  if (R.pos.palm) { const fp = cardPt(R.pos.palm, CARD.z).add(V(0, 0, 0.1 * S)); const frozenAt = fp.add(R.pos.at.clone().multiplyScalar(S)); at_ = R.pos.glide !== undefined ? frozenAt.lerp(at_, ease(R.pos.glide)) : frozenAt }
+  let d = 0.12 * S * R.size * pop(t, 54.5, 3)
+  let q = R.q.clone(), sq = 1, n = V(0, 0, 1), c = at_
+  // breakdown: the model presses flat into the strip's tile and stays parked there (that is the bug)
+  const park = ease((b - 66.3) / 0.7) * (1 - ease((b - 77) / 0.6))
+  if (park > 0) {
+    const tile = V(CARD.x + CARD.w / 2 - 80, CARD.y - CARD.h / 2 - 70, CARD.z + 3)
+    at_ = at_.clone().lerp(tile, park); d = lerp(d, 76, park); q.slerp(Q_THUMB, park); sq = lerp(1, 0.002, park); c = tile
+  }
+  // shelf: it flies back to its tile, then the pulled tile's model pops into the hand (see shelfScene)
+  if (b >= 90.8) return shelfScene(t, b, pose, P, S, palm)
+  E.hm.place(at_, d, q, sq, n, c)
+}
+function shelfScene(t, b, pose, P, Sc, palm) {
+  // the column goes on the side my first swing moves away from (left of the pinch), tiles sized so only my second swing pops it
+  const TILE = plan.shelf_tile_px * u, p0 = hand.pic[TCH.touches[0].start_f], pinchPt = [(p0[4][0] + p0[8][0]) / 2, (p0[4][1] + p0[8][1]) / 2]
+  const col = cardPt([pinchPt[0] - TILE * 0.2, pinchPt[1]], CARD.z + 0.1 * Sc), rise = ease((b - 90.6) / 0.8)
+  const liftK = 2                                                 // the tile at my fingers
+  const pch = TCH.touches[0], i = pose.i, gripped = i >= pch.start_f && i < TCH.touches[0].end_f
+  const pp = [(hand.pic[hand.nearest(i)][4][0] + hand.pic[hand.nearest(i)][8][0]) / 2, (hand.pic[hand.nearest(i)][4][1] + hand.pic[hand.nearest(i)][8][1]) / 2]
+  const pullPx = gripped ? Math.max(0, pp[0] - pinchPt[0]) : 0, x = pullPx / (2 * plan.shelf_tile_px)
+  const popped = b >= 98
+  E.tiles.forEach((tl, k) => {
+    const y = col.y + (k - liftK) * (TILE + 14) * (rise), z = col.z - 20
+    tl.visible = rise > 0.01; tl.position.set(col.x - TILE / 2 - 10, y, z); tl.set({ w: TILE, h: TILE, r: 10 })
+    const m = E.shelfM[k % 5]
+    let mp = V(col.x - TILE / 2 - 10, y, z + 2), md = TILE * 0.9, sq = 0.002, qq = Q_THUMB
+    if (k === liftK) {
+      mp.y += TILE * 0.15 * clamp((b - 92.5) / 0.4)
+      if (gripped && !popped) { const mv = 1.3 * (1 - Math.pow(1 - clamp(x), 1.5)) * TILE; mp.x += mv; md *= 1 + 0.3 * clamp(x) }
+      if (popped) return                                             // popped: the tile is empty; the model is in the hand
+    }
+    if (k === 0 && b < 91.6) return
+    m.place(mp, md * rise, qq, sq, V(0, 0, 1), V(mp.x, mp.y, z + 2))
+  })
+  // the band between tile and picture while it stretches
+  if (gripped && !popped && x > 0.05) {
+    const a = V(col.x - TILE / 2 - 10, col.y, col.z - 18), c = V(col.x - TILE / 2 - 10 + 1.3 * (1 - Math.pow(1 - clamp(x), 1.5)) * TILE, col.y + TILE * 0.15, col.z - 16)
+    E.band.visible = true; E.band.geometry.dispose(); E.band.geometry = new THREE.TubeGeometry(new THREE.LineCurve3(a, c), 1, lerp(5, 1.5, clamp(x)), 10)
+  }
+  // the held model flies back to tile 0 (90.8..91.6) in an arc and flattens; the pulled model pops into the hand on 98
+  if (b < 91.6) { const k = ease((b - 90.8) / 0.8), dst = V(col.x - TILE / 2 - 10, col.y - 2 * (TILE + 14), col.z - 18)
+    const src = palm.clone().add(V(0, 0.06 * Sc, 0)); const p = src.lerp(dst, k).add(V(0, Math.sin(Math.PI * k) * 180, 0))
+    E.hm.place(p, lerp(0.12 * Sc, TILE * 0.9, k), new THREE.Quaternion().slerp(Q_THUMB, k), lerp(1, 0.002, k), V(0, 0, 1), dst) }
+  if (popped) {                                                  // grows from its picture's size, overshoots to ~1.12 by 0.28 s, settles by 0.6 s
+    const s0 = (TILE * 0.9) / (0.12 * Sc), sp = S(t - at(98), 1.55, 0.5)
+    E.popM.place(palm.clone().add(V(0, 0, 0.06 * Sc)), 0.12 * Sc * lerp(s0, 1, sp), Q_THUMB.clone().slerp(new THREE.Quaternion(), clamp(sp)), lerp(0.002, 1, clamp(sp * 1.5)))
+  }
+}
+
+function callScene(t, b, cs) {
+  // ---- 101: the studio presses flat behind the corner card, which grows to fill the frame, then becomes one call tile ----
+  const g = ease((b - 101) / 0.8), toTile = ease((b - 102) / 0.7), CORNER = { x: W - 40 - 190, y: W - 40 - 107, w: 380, h: 214 }
+  const TILEW = 440, TILEH = 248, GAP = 24
+  const grid = [[-1, 0.5], [0, 0.5], [1, 0.5], [-1, -0.5], [0, -0.5], [1, -0.5]], MAIN = 1
+  const close = ease((b - 113) / 0.7)
+  if (b < 102) {                                                  // overlay: corner card -> full frame
+    cornerCard(t, b, { x: lerp(CORNER.x, W / 2, g), y: lerp(CORNER.y, W / 2, g), w: lerp(CORNER.w, W * 1.02, g), h: lerp(CORNER.h, W * 1.02, g) }, 1)
+    if (g > 0.999) { E.callBg.visible = true; E.callBg.position.set(cs.T.x, cs.T.y, 600) }
+    return
+  }
+  E.callBg.visible = b < 114.3; E.callBg.position.set(0, 0, 600); E.callBg.set({ w: 3000, h: 3000, r: 0 })
+  // the main tile: full frame -> its grid place (the camera is flat and framed on the grid from here)
+  const [gx, gy] = grid[MAIN], mx = gx * (TILEW + GAP), my = gy * (TILEH + GAP) * 2 * 0.5 + 60
+  const shrink = ease((b - 113) / 0.6), toDot = ease((b - 113.6) / 0.6)
+  let w = lerp(1440, TILEW, toTile), h = lerp(1440, TILEH, toTile), x = lerp(0, mx, toTile), y = lerp(0, my, toTile)
+  if (b >= 113) { x = lerp(mx, 0, shrink); y = lerp(my, 0, shrink); w = lerp(TILEW, 30, toDot); h = lerp(TILEH, 30, toDot) }
+  // 105: the tile's clip pushes to my hand passing in front of the swapped face
+  const n = b >= 105 ? 5 : 4
+  E.mainTile.visible = true; E.mainTile.position.set(x, y, 610); E.mainTile.set({ w, h, r: lerp(0, 16, toTile) })
+  E.mainImg.visible = w > 60; E.mainImg.material.map = E.liveTex[n]; E.mainImg.position.set(x, y, 611); E.mainImg.scale.set(w, h, 1)
+  if (b >= 114.2) { E.mainTile.visible = E.mainImg.visible = false }
+  // 102: the other tiles unfold from behind it like a paper map, initials only
+  E.callTiles.forEach((tl, k) => {
+    const gi = [0, 2, 3, 4, 5][k], [tx, ty] = grid[gi], unf = ease((b - 102.4 - k * 0.12) / 0.5) * (1 - ease((b - 113 + k * 0.05) / 0.45))
+    if (unf < 0.001) return
+    const px = lerp(mx, tx * (TILEW + GAP), unf), py = lerp(my, ty * (TILEH + GAP) + 60, unf)
+    tl.box.visible = tl.av.visible = tl.t.visible = true
+    tl.box.position.set(px, py, 605); tl.box.scale.set(tiny(unf), 1, 1); tl.av.position.set(px, py + 10, 606); tl.av.scale.setScalar(tiny(unf)); tl.t.position.set(px, py + 10, 607); tl.t.scale.setScalar(tiny(unf))
+  })
+  if (b >= 113) return
+  // 103..104: the cursor opens the camera menu and picks "OBS Virtual Camera"; a tick draws itself
+  const bx = mx, by = my - TILEH / 2 - 60, mo = on(t, 103, 3, 0.8)
+  place(E.camBtn, bx, by, 620, pop(t, 102.8, 3)); place(E.camBtnT, bx, by, 621, pop(t, 102.8, 3))
+  if (mo > 0.01) {
+    E.menu.visible = true; E.menu.position.set(bx, by - 100 * mo, 622); E.menu.scale.set(1, tiny(mo), 1)
+    E.menuItems.forEach((it, k) => place(it, bx - 160, by - 70 * mo - k * 56 * mo + 10, 624, 1))
+    if (b > 103.8) { E.menuHl.visible = true; E.menuHl.position.set(bx, by - 70 * mo - 56 * mo + 10, 623) }
+    if (b > 104.1) place(E.menuTick, bx + 150, by - 70 * mo - 56 * mo + 10, 625, clamp((b - 104.1) / 0.3))
+  }
+  const cur = E.cursor; cur.visible = b > 102.6; const cp = ease((b - 102.6) / 0.6), cp2 = ease((b - 103.4) / 0.4)
+  cur.position.set(lerp(bx + 300, bx + 10, cp) - 60 * cp2, lerp(by - 200, by - 6, cp) - 120 * cp2, 630)
+  // 105: "Hands stay in front of the face"; 107: zoom onto the AI effect tag; 108: the lock chip
+  if (b >= 105.2) place(E.hands, mx - TILEW / 2, my + TILEH / 2 + 50, 620, pop(t, 105.2, 3))
+  if (b >= 108) { place(E.lock, 0, -470, 620, pop(t, 108, 3)); place(E.lockT, 0, -470, 621, pop(t, 108, 3)) }
+}
+
+
+function closeScene(t, b) {
+  // the tile has shrunk into the period; the letters spring back out, landing on beat 119, settled by the last frame
+  const f = clamp(S(t - at(117.9), 1.1, 0.78), 0, 1.08), slide = 1 - f
+  const x0 = -E.wordTotal / 2; let acc = 0; const px = []; E.word.forEach((_, i) => { px.push(x0 + acc); acc += E.wordAdv[i] })
+  const pIdx = E.word.length - 1, pX = px[pIdx], pW = E.wordW[pIdx], shift = -(pX + pW / 2) * slide
+  E.word.forEach((m, i) => {
+    m.visible = i === pIdx || f > 0.004
+    m.position.set(pX + (px[i] - pX) * f + shift, 0, 1); m.scale.set(i === pIdx ? 1 : tiny(f), 1, 1)
+  })
+}
+
+
+// ================= captions: the voice, word by word (the reference's kinetic type) =================
+// Each spoken line is set in Geist SemiBold with one word in Instrument Serif italic, accent orange. Words rise through a
+// mask line as they are said (times spread over the line's measured length by syllables and pauses) and leave upward
+// through it when the next line starts. Drawn in the overlay pass, bottom-left.
+const EMPH = { 'message.': 1, 'judge.': 1, 'six': 1, 'thirty.': 1, 'thousand:': 1, 'face.': 1, 'model.': 1, 'Start': 1, 'Live': 1, 'Thirty': 1, 'hand.': 1, 'Pinch:': 1,
+  'zero': 1, 'apart.': 1, 'hundred': 1, 'grows,': 1, 'faces': 1, 'shelf': 1, 'resists,': 1, 'pops': 1, 'virtual': 1, 'front': 1, 'MacBook': 1, 'Nothing': 1 }
+const CAP = { x: 72, y: 92, size: 50, maxW: 1100, lh: 68 }
+const syl = (w) => Math.max(1, (w.toLowerCase().replace(/[^a-z]/g, '').match(/[aeiouy]+/g) || []).length) + (/[,.:]$/.test(w) ? 0.8 : 0)
+async function buildCaptions() {
+  E.caps = []
+  for (const v of voice) {
+    if (v.line === 'swapstudio.') continue
+    const words = v.line.split(' ')
+    const ws = words.map((w) => { const em = EMPH[w] && !E.caps.some((c) => c.words.some((x) => x.em)) || EMPH[w]; return { w, em: !!EMPH[w],
+      t: (() => { const tx = new Text(); tx.material = new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true })
+        Object.assign(tx, { text: w, font: EMPH[w] ? FONT.serif : FONT.uiS, fontSize: EMPH[w] ? CAP.size * 1.3 : CAP.size, color: EMPH[w] ? COL.accent : COL.text, anchorX: 'left', anchorY: 'bottom-baseline' })
+        tx.renderOrder = 100; ov.add(tx); texts.push(tx); managed.push(tx); tx.visible = true; return tx })() } })
+    E.caps.push({ v, words: ws })
+  }
+  await syncAll()
+  for (const c of E.caps) {
+    // wrap into lines from the bottom-left, then time each word by its share of the syllables
+    let x = 0, row = 0; const space = CAP.size * 0.28
+    c.words.forEach((w) => { const bb = w.t.textRenderInfo.blockBounds, wd = bb[2] - bb[0]; if (x > 0 && x + wd > CAP.maxW) { x = 0; row++ } w.x = x; w.row = row; x += wd + space })
+    c.rows = row + 1
+    const total = c.words.reduce((a, w) => a + syl(w.w), 0), speech = Math.max(0.3, c.v.len - c.v.lead - 0.1)
+    let acc = 0; c.words.forEach((w) => { w.at = c.v.t + (acc / total) * speech; acc += syl(w.w) })
+    c.words.forEach((w) => (w.t.visible = false))
+  }
+  E.caps.forEach((c, k) => (c.out = k + 1 < E.caps.length ? Math.min(E.caps[k + 1].v.t - 0.32, c.v.t + c.v.len + 1.2) : c.v.t + c.v.len + 1))
+}
+function captions(t) {
+  for (const c of E.caps) {
+    if (t < c.v.t - 0.05 || t > c.out + 0.4) continue
+    const leave = ease((t - c.out) / 0.3)
+    c.words.forEach((w) => {
+      const rise = ease((t - w.at) / 0.18); if (rise <= 0) return
+      const baseY = CAP.y + (c.rows - 1 - w.row) * CAP.lh, y = baseY - (1 - rise) * CAP.lh * 0.8 + leave * CAP.lh * 0.8
+      w.t.visible = true; w.t.position.set(CAP.x + w.x, y, 0)
+      // the mask line: each row shows only inside its own band (planes in overlay pixels)
+      const pl = w.t.material.clippingPlanes || (w.t.material.clippingPlanes = [new THREE.Plane(), new THREE.Plane()])
+      pl[0].set(V(0, 1, 0), -(baseY - CAP.size * 0.42)); pl[1].set(V(0, -1, 0), baseY + CAP.size * 1.25)
+    })
+  }
+}
+
+
+// ================= sound cues [beat, sample (audio/src/sfx/<name>.wav), gain dB] =================
+// tools/mix.py places each sample's measured peak on its beat. Open/Build/Start beats go through NB like their moments.
+const R_ = (a, n, step) => Array.from({ length: n }, (_, k) => a + k * step)
+const clipBeat = (name, c) => (SL[name].t0 + (c - SL[name].c0)) / B + 1        // a clip moment -> the film beat it plays on
+function cues() {
+  const pk = TCH.zoom.pump_top_f.map((f) => clipBeat('zoom', f / 30)), taps = TCH.touches.filter((x) => x.dur_s && x.dur_s < 0.5).slice(0, 2)
+  const L = [
+    [NB(1.6), 'whoosh_sonicpi_perc_swoosh', -15], [NB(2.6), 'pop_sonicpi_elec_blup', -14],
+    ...R_(NB(3.1), 12, 0.28).map((b) => [b, 'tick_sonicpi_tbd_perc_tap_1', -21]),
+    [NB(5), 'whoosh_sonicpi_ambi_swoosh', -16], ...R_(5.5, 5, 0.5).map((b) => [NB(b), 'pop_sonicpi_elec_plip', -16]),
+    [NB(7), 'click_kenney_toggle', -14], [NB(8), 'pop_sonicpi_elec_pop', -13], [NB(8.5), 'pop_sonicpi_elec_pop', -14],
+    [NB(9), 'snap_tidewater_bail_click_s2', -8], [NB(10), 'thud_kenney_removal_a', -13],
+    ...R_(11, 8, 0.25).map((b) => [NB(b), 'tick_sonicpi_elec_blip', -17]),
+    [NB(13), 'pop_sonicpi_elec_pop', -13], [NB(14), 'click_kenney_rotate', -12], [NB(14.6), 'click_kenney_rotate', -12],
+    [NB(15.6), 'click_kenney_placement_a', -10], [NB(15.85), 'click_kenney_placement_b', -10], [NB(16.9), 'whoosh_sonicpi_ambi_swoosh', -14],
+    ...R_(18, 4, 0.25).map((b) => [NB(b), 'pop_sonicpi_elec_plip', -15]), [NB(19.25), 'click_kenney_placement_c', -11],
+    ...R_(20, 4, 0.25).map((b) => [NB(b), 'pop_sonicpi_elec_blup', -15]), [NB(20.5), 'whoosh_tidewater_rod_swish_s1', -16],
+    [NB(21.05), 'tick_godot_metronome_quartz_hi', -12], [NB(22), 'thud_kenney_platformer_land', -12],
+    [NB(23.2), 'snap_tidewater_bail_click_s1', -8], [NB(23.4), 'swell_sonicpi_ambi_glass_rub', -19],
+    ...R_(24, 4, 0.25).map((b) => [NB(b), 'tick_sonicpi_elec_tick', -18]), [NB(26), 'thud_kenney_removal_c', -14],
+    ...R_(27, 4, 0.25).map((b) => [NB(b), 'click_kenney_toggle', -12]), [NB(28), 'click_kenney_placement_d', -8],
+    // live
+    [44.95, 'swell_tps_charge', -12], [45, 'boom_sonicpi_bd_boom', -4], [45.05, 'whoosh_sonicpi_ambi_swoosh', -10], [46.1, 'pop_sonicpi_elec_pop', -12],
+    [47.9, 'whoosh_tidewater_rod_swish_s2', -16], [49.3, 'whoosh_sonicpi_perc_swash', -14], [51.6, 'tick_godot_metronome_quartz_hi', -12],
+    ...R_(51.8, 5, 0.2).map((b) => [b, 'pop_sonicpi_elec_plip', -21]), [52.5, 'tick_sonicpi_elec_blip2', -16],
+    [53.05, 'snap_tidewater_bail_click_s3', -8], [54.6, 'pop_sonicpi_elec_ping', -10],
+    [clipBeat('live', TCH.touches[0].start_s), 'tick_godot_metronome_quartz_hi', -10],
+    ...[7.83, 8.4, 8.93, 9.43, 9.93].map((c) => [clipBeat('live', c), 'click_kenney_rotate', -16]),
+    [clipBeat('live', TCH.touches[0].end_s), 'whoosh_tidewater_rod_swish_s3', -18],
+    // breakdown
+    [66.3, 'thud_kenney_removal_a', -16], [66.6, 'pop_sonicpi_elec_blup', -16], [67.2, 'swell_sonicpi_vinyl_rewind', -15],
+    [clipBeat('zoom', TCH.zoom.fingertips_met_f / 30), 'tick_godot_metronome_quartz_hi', -12], [clipBeat('zoom', TCH.zoom.middle_joined_f / 30), 'tick_godot_metronome_quartz_hi', -12],
+    [75.1, 'thud_sonicpi_elec_soft_kick', -12], [75.9, 'tick_sonicpi_elec_blip2', -14], [76, 'pop_sonicpi_elec_pop', -12],
+    // return
+    [77, 'boom_sonicpi_bd_boom', -6], [77.05, 'snap_tidewater_bail_click_s4', -8], ...pk.map((b) => [b, 'tick_sonicpi_hat_tap', -12]),
+    [clipBeat('zoom', TCH.zoom.let_go_f / 30), 'whoosh_tidewater_rod_swish_s4', -18], ...taps.map((x) => [clipBeat('zoom', x.start_s), 'tick_godot_metronome_quartz_hi', -10]),
+    [clipBeat('zoom', taps[1].start_s) + 0.3, 'whoosh_tidewater_rod_swish_s5', -16],
+    // shelf
+    [89.2, 'whoosh_sonicpi_ambi_dark_woosh', -14], ...R_(90.6, 6, 0.1).map((b, k) => [b, 'click_kenney_placement_' + 'abcdab'[k], -17]),
+    [91, 'whoosh_tidewater_rod_swish_s1', -16], [91.6, 'thud_kenney_removal_c', -14],
+    [clipBeat('shelf', TCH.touches[0].start_s), 'tick_godot_metronome_quartz_hi', -10], [clipBeat('shelf', 7.83), 'twang_tidewater_line_snap_s2', -14],
+    [98, 'twang_sonicpi_elec_twang', -8], [98, 'pop_sonicpi_elec_pop', -8], [98.02, 'boom_sonicpi_perc_impact1', -11],
+    // call
+    [101, 'snap_tidewater_bail_click_s1', -10], [101.1, 'whoosh_sonicpi_ambi_swoosh', -12], ...R_(102.4, 5, 0.12).map((b, k) => [b, 'click_kenney_placement_' + 'abcda'[k], -16]),
+    [102.8, 'pop_sonicpi_elec_plip', -14], [103, 'tick_sonicpi_elec_blip2', -12], [103.8, 'tick_sonicpi_elec_tick', -16], [104.1, 'click_kenney_toggle', -10],
+    [105, 'whoosh_tidewater_rod_swish_s5', -16], [105.2, 'pop_sonicpi_elec_blup', -14], [106.2, 'whoosh_sonicpi_ambi_swoosh', -16], [108, 'pop_sonicpi_elec_blup', -10],
+    // close
+    [113, 'whoosh_sonicpi_perc_swash', -14], [113.7, 'pop_sonicpi_elec_plip', -12], [118, 'whoosh_sonicpi_ambi_swoosh', -12], [119, 'thud_sonicpi_elec_soft_kick', -10],
+  ]
+  return L.map(([b, name, db]) => ({ t: +((b - 1) * B).toFixed(4), name, db }))
+}
+
+// ================= camera keys =================
+// [beat, target x, y, yaw deg, elevation deg, framed height, fov deg]. Flat keys use 0.5 deg.
+const CAM = [
+  [1, 0, 0, 0, 0, 1440, 0.5],
+  [4.6, 0, 180, 0, 0, 1500, 0.5],
+  [5.4, 0, 60, 0, 0, 1440, 0.5],
+  [6.8, -60, 60, 0, 0, 1260, 0.5],
+  [7.2, 40, -100, 0, 0, 1000, 0.5],
+  [9, 20, -110, 0, 0, 900, 0.5],
+  [9.1, 20, -110, 16, 8, 900, 34],                   // lens opens for one beat: the digits turn with their shadow
+  [10.2, 20, -120, 0, 0, 940, 0.5],
+  [11, -100, -280, 0, 0, 1100, 0.5],
+  [13, 60, -330, 0, 0, 1080, 0.5],
+  [15, -140, -420, 0, 0, 1000, 0.5],
+  [16.6, 0, 0, 0, 0, 1440, 0.5],
+  [17.6, 0, 0, 0, 0, 1400, 0.5],
+  [18, -190, 160, 0, 0, 900, 0.5],                   // 1 Face
+  [20, 20, -80, 0, 0, 1000, 0.5],                    // 2 Model + Finder
+  [22.2, 380, -70, 0, 0, 800, 0.5],
+  [23.2, 380, -60, 24, 12, 800, 34],                 // the model stands up out of its card
+  [26, 380, -70, 0, 0, 820, 0.5],                    // it sinks back, the lens closes
+  [26.8, 60, -340, 0, 0, 900, 0.5],                  // 3 Start
+  [28.4, 330, -400, 0, 0, 760, 0.5],
+  // --- one-minute grid from here (not remapped) ---
+  [45, 0, 0, 0, 0, 1500, 0.5],                      // the drop: the flood, then the live card
+  [46.2, 0, 0, 0, 0, 1380, 0.5],
+  [48, -250, 0, 0, 0, 1000, 0.5],                   // pushes onto the hand; the live card becomes the corner card
+  [50, -300, 0, 0, 0, 860, 0.5],
+  [52.9, -300, 0, 0, 0, 820, 0.5],
+  [53.2, -300, 20, 22, 10, 820, 34],                // the dots lift off the card: the lens opens
+  [56.6, -300, 40, -20, 10, 860, 34],
+  [60.5, -300, 40, 70, 12, 900, 36],                // pinch: the camera circles a quarter round the model
+  [64.5, -300, 40, 45, 12, 900, 36],
+  [66, -100, -150, 28, 10, 1350, 36],               // breakdown: the strip grows out of the card
+  [70.5, -120, -120, 20, 8, 1250, 34],
+  [73.4, -300, 30, 38, 14, 860, 34],                // orbit a little to show the gap the 3D guess leaves
+  [75.1, -260, 0, 0, 0, 900, 0.5],                  // the 3D hand presses flat onto the picture
+  [77, -260, 20, 20, 10, 980, 34],                  // beat return: it lifts back into 3D
+  [83, -260, 30, 28, 10, 1000, 34],
+  [89, -260, 0, 15, 8, 1150, 34],
+  [91, -380, 40, 25, 10, 1150, 36],                 // the shelf
+  [97.6, -340, 40, 32, 10, 900, 34],
+  [100, -300, 30, 20, 10, 1000, 34],
+  [101, -300, 30, 0, 0, 1000, 0.5],                 // the studio presses flat behind the corner card
+  [102, 0, 0, 0, 0, 1440, 0.5],                     // the call
+  [106.2, -175, 90, 0, 0, 460, 0.5],                // onto the AI effect tag
+  [107.9, 0, -80, 0, 0, 1440, 0.5],
+  [112.6, 0, 0, 0, 0, 1440, 0.5],
+  [121, 0, 0, 0, 0, 1440, 0.5],
+]
+const camCh = (idx, conv = (v) => v) => track(CAM.map((k) => [k[0] <= 29 ? NB(k[0]) : k[0], conv(k[idx])]), 1.5, 1)
+const CAMT = { x: camCh(1), y: camCh(2), yaw: camCh(3, (d) => (d * Math.PI) / 180), el: camCh(4, (d) => (d * Math.PI) / 180), H: camCh(5, Math.log), L: camCh(6, Lof) }
+const camAt = (t) => ({ T: V(CAMT.x(t), CAMT.y(t), 0), yaw: CAMT.yaw(t), el: CAMT.el(t), H: Math.exp(CAMT.H(t)), L: CAMT.L(t) })
+
+// ================= seek =================
+const CHAT = { x: 0, y: 0, w: 1240, h: 1200 }
+async function seek(tIn) {
+  const t = clamp(tIn, 0, DUR - 1e-6), b = t / B + 1
+  managed.forEach((m) => (m.visible = false))
+  const cs = camAt(t); const lens = clamp((cs.L - FLAT) / (Lof(34) - FLAT), 0, 1.2)
+  applyCam(cs)
+  if (b < NB(17.6)) openBuild(t, b, lens)
+  if (b >= NB(16.9) && b < NB(29.4)) startScene(t, b, lens)
+  if (b >= 45 && b < 101.05) liveScene(t, b, cs, lens)
+  if (b >= 101) callScene(t, b, cs)
+  if (b >= 113.4) closeScene(t, b)
+  captions(t)
+  await syncAll()
+  // pass 1: the room; pass 2: the held model over everything (the app draws it over the fingers); pass 3: the overlay
+  renderer.clear(); camera.layers.set(0); renderer.render(scene, camera)
+  renderer.clearDepth(); camera.layers.set(2); renderer.render(scene, camera); camera.layers.set(0)
+  renderer.clearDepth(); renderer.render(ov, ovCam)
+}
+
+function openBuild(t, b, lens) {
+  const ob = OB(b)
+  // ---- wordmark squeeze (1.5..2.5): every letter moves toward the period by the same factor, its width follows ----
+  const f = 1 - ease((ob - 1.6) / 0.9), slide = ease((ob - 1.6) / 0.9)
+  const x0 = -E.wordTotal / 2
+  let acc = 0; const px = []; E.word.forEach((_, i) => { px.push(x0 + acc); acc += E.wordAdv[i] })
+  const pIdx = E.word.length - 1, pX = px[pIdx], pW = E.wordW[pIdx]
+  const shift = -(pX + pW / 2) * slide
+  E.word.forEach((m, i) => {
+    if (ob >= 2.6) return
+    m.visible = i === pIdx || f > 0.004
+    m.position.set(pX + (px[i] - pX) * f + shift, 0, 1)
+    m.scale.set(i === pIdx ? 1 : tiny(f), 1, 1)
+  })
+  // ---- the period stretches into the chat input pill (2.5..3), then my first message types into it ----
+  const grow = ease((ob - 2.5) / 0.6)
+  const lift = on(t, NB(5), 2.2, 0.9)                             // beat 5: the pill lifts into a bubble
+  if (ob >= 2.5 && ob < 17.2) {
+    const pillW = lerp(pW, 1180, grow), pillH = lerp(pW * 1.02, 96, grow)
+    const bubble = E.bubbles[0]
+    const q = Q()[0], typed = q.slice(0, Math.round(clamp((ob - 3.05) / 1.5) * q.length))
+    if (lift < 0.002) {
+      E.pill.visible = true; E.pill.position.set(0, E.word[pIdx].userData.dotY ?? -pW * 0.05, 2); E.pill.set({ w: pillW, h: pillH, r: lerp(3, 48, grow), color: COL.text })
+      E.pillText.visible = grow > 0.99 && typed.length > 0; E.pillText.text = typed; E.pillText.position.set(-560, 0, 3)
+      E.caret.visible = grow > 0.99 && Math.floor(t * 4) % 2 === 0; E.caret.position.set(-560 + typed.length * 16.4 + 6, 0, 3)
+    }
+    // ---- beat 5: the pill becomes my bubble and the chat panel grows round it ----
+    if (lift >= 0.002) {
+      const bw = 700, bh = 110, tx = CHAT.w / 2 - 40 - bw / 2, ty = CHAT.h / 2 - 150
+      E.pill.visible = true; E.pill.position.set(lerp(0, tx, lift), lerp(0, ty, lift), 3)
+      E.pill.set({ w: lerp(1180, bw, lift), h: lerp(96, bh, lift), r: lerp(48, 24, lift), color: new THREE.Color(COL.text).lerp(new THREE.Color(COL.panel3), clamp(lift * 1.4)) })
+      E.pillText.visible = true; E.pillText.text = q; E.pillText.maxWidth = lerp(1200, 640, lift); E.pillText.color = new THREE.Color('#141416').lerp(new THREE.Color(COL.text), clamp(lift * 1.4))
+      E.pillText.position.set(lerp(-560, tx - bw / 2 + 28, lift), lerp(0, ty, lift), 4)
+      const cg = on(t, NB(5), 1.8, 0.95)
+      E.chat.visible = true; E.chat.position.set(0, 0, 0); E.chat.set({ w: lerp(bw, CHAT.w, cg), h: lerp(bh, CHAT.h, cg) })
+      E.chatHead.visible = cg > 0.6; E.chatHead.position.set(-CHAT.w / 2 + 44, CHAT.h / 2 - 56, 1); E.chatHead.clipRect = [-1e4, -1e4, 1e4, 1e4]
+      // helper agents pop in as rows, one per eighth
+      E.agents.forEach((a, k) => {
+        const s = pop(t, NB(5.5 + k * 0.5), 3.4); if (s < 0.01) return
+        const y = CHAT.h / 2 - 270 - k * 58, x = -CHAT.w / 2 + 44 + 235
+        a.box.visible = a.dot.visible = a.t.visible = true
+        a.box.position.set(x, y, 1); a.box.scale.setScalar(tiny(s))
+        a.dot.position.set(x - 205 * s, y, 2); a.dot.scale.setScalar(tiny(s)); a.t.position.set(x - 184 * s, y, 2); a.t.scale.setScalar(tiny(s))
+      })
+    }
+  }
+  // ---- 7-8: the early speed, and my hand's 21 dots redrawn only 7.7 times a second ----
+  const tm = pop(t, NB(7), 2.6), speed7 = 7.7
+  if (tm > 0.01) {
+    const X = -CHAT.w / 2 + 44 + 380, Y = -120
+    E.term.visible = true; E.term.position.set(X, Y, 1); E.term.scale.setScalar(tiny(tm))
+    const line = 'an early logged session: 7.7 fps'
+    E.termLine.visible = true; E.termLine.text = '> ' + line.slice(0, Math.round(clamp((ob - 7.1) / 0.8) * line.length)); E.termLine.position.set(X - 350, Y + 125, 2)
+    // the big number: 7.7 swaps to 30 through a mask line on beat 9, its depth a spring (0.2% while flat)
+    const sw = ease((ob - 9) / 0.35), depth = lerp(0.002, 1, clamp(lens))
+    const turn = (20 * Math.PI / 180) * clamp(lens)
+    for (const [s, p] of [['7.7', 1 - sw], ['30', sw]]) {
+      const m = E.num[s]; if (!m || p < 0.001 || ob < 7.6) continue
+      m.visible = true; m.scale.set(tm, tm, depth)
+      const yoff = (s === '7.7' ? sw : sw - 1) * 170
+      m.position.set(X - 150, Y + 5 + yoff, 3 + Math.sin(turn) * 170 * tm); m.rotation.set(0, turn, 0)
+      // mask line: clip each number to the terminal's number window
+      m.material.clippingPlanes = [new THREE.Plane(V(0, -1, 0), Y + 5 + 95), new THREE.Plane(V(0, 1, 0), -(Y + 5 - 95))]
+    }
+    E.fpsUnit.visible = ob > 7.6; E.fpsUnit.position.set(X + 40, Y - 30, 2)
+    // the real speed line types out under the digits as they press flat again (beat 10)
+    const rl = facts.speed.real_speed_line
+    E.speedLine.visible = ob > 10; E.speedLine.text = rl.slice(0, Math.round(clamp((ob - 10) / 1.2) * rl.length)); E.speedLine.position.set(X - 350, Y - 105, 2); E.speedLine.anchorY = 'top'
+    // dots card: my hand's picture joints, redrawn 7.7 times a second until beat 9, then on every frame
+    const DX = CHAT.w / 2 - 44 - 190, dc = E.dotsCard
+    dc.visible = true; dc.position.set(DX, Y, 1); dc.scale.setScalar(tiny(tm))
+    const rate = ob < 9 ? speed7 : 30
+    const c = 1.6 + Math.floor((t - at(NB(7))) * rate) / rate * (rate === 30 ? 1 : 1)
+    const i = hand.nearest(hand.frameOf(c)), P = hand.pic[i]
+    const cx = P.reduce((a, p) => a + p[0], 0) / 21, cy = P.reduce((a, p) => a + p[1], 0) / 21
+    E.dotsDots.forEach((d, j) => { d.visible = true; d.position.set(DX + (P[j][0] - cx) * 0.42 * tm, Y - (P[j][1] - cy) * 0.42 * tm, 2); d.scale.setScalar(tiny(tm)) })
+  }
+  // bubbles: my messages, exactly as typed
+  const bub = (k, qi, beat, y) => {
+    const s = pop(t, NB(beat), 3.2); if (s < 0.01) return
+    const e = E.bubbles[k], q = Q()[qi]; e.t.text = q; e.t.maxWidth = 520
+    const lines = Math.ceil(q.length / 34), bw = Math.min(560, 40 + q.length * 13.2), bh = 34 + lines * 33
+    const x = CHAT.w / 2 - 44 - bw / 2
+    e.box.visible = e.t.visible = true; e.box.position.set(x, y, 2); e.box.set({ w: bw, h: bh, r: 22, color: COL.panel3 }); e.box.scale.setScalar(tiny(s))
+    e.t.position.set(x - bw / 2 + 22, y, 3); e.t.scale.setScalar(tiny(s))
+  }
+  bub(1, 1, 8, CHAT.h / 2 - 280); bub(2, 2, 8.5, CHAT.h / 2 - 380); bub(3, 6, 13, -440)
+  // judge chips: one per sixteenth
+  const cl = pop(t, NB(11), 3)
+  if (cl > 0.01) { E.chipsLabel.visible = true; E.chipsLabel.position.set(-CHAT.w / 2 + 44, -305, 1) }
+  E.chips.forEach((c, k) => {
+    const s = pop(t, NB(11 + k * 0.25), 3.6); if (s < 0.01) return
+    const x = -CHAT.w / 2 + 44 + 56 + k * 124, y = -360
+    c.box.visible = c.t.visible = true; c.box.position.set(x, y, 1); c.box.scale.setScalar(tiny(s)); c.t.position.set(x, y, 2); c.t.scale.setScalar(tiny(s))
+  })
+  const bc = pop(t, NB(13.5), 3)
+  if (bc > 0.01) {
+    const x = CHAT.w / 2 - 44 - 150, y = -545
+    E.bigChip.visible = true; E.bigChip.position.set(x, y, 1); E.bigChip.scale.setScalar(tiny(bc))
+    for (const e of [E.bigA, E.bigB, E.bigC]) { e.userData.y0 = y; e.position.x = x; e.position.z = 2 }
+    // 9.7 / 10 -> 373 / 1000 (first round) -> 578 / 1000 (second round), each through the chip's mask line
+    const s2 = ease((ob - 14.6) / 0.3)
+    if (s2 <= 0) swapText(E.bigA, E.bigB, ease((ob - 14) / 0.35), 40); else swapText(E.bigB, E.bigC, s2, 40)
+    for (const e of [E.bigLabel, E.bigLabel2]) { e.userData.y0 = y; e.position.x = x - 170; e.position.z = 1 }
+    if (ob > 14) swapText(E.bigLabel, E.bigLabel2, s2, 28); E.bigLabel.clipRect = E.bigLabel.clipRect.map((v, i) => (i % 2 ? v : i ? 10 : -300)); E.bigLabel2.clipRect = E.bigLabel2.clipRect.map((v, i) => (i % 2 ? v : i ? 10 : -300))
+  }
+  // the last reply: a double-click launcher; the cursor double-clicks it (15.5, 15.75)
+  const ls = pop(t, NB(15), 3)
+  if (ls > 0.01) {
+    const x = -CHAT.w / 2 + 44 + 75, y = -CHAT.h / 2 + 95
+    const press = 1 - 0.06 * (Math.exp(-Math.max(0, t - at(NB(15.6))) * 18) * (ob > 15.6) + Math.exp(-Math.max(0, t - at(NB(15.85))) * 18) * (ob > 15.85))
+    E.launcher.visible = E.launchMark.visible = true; E.launcher.position.set(x, y, 2); E.launcher.scale.setScalar(tiny(ls * press)); E.launchMark.position.set(x, y, 3); E.launchMark.scale.setScalar(tiny(ls * press))
+    E.launchLabel.visible = true; E.launchLabel.position.set(x + 190, y, 3)
+    const cur = E.cursor; cur.visible = ob > 14.8
+    const k = ease((ob - 14.8) / 0.7); cur.position.set(lerp(x + 420, x + 8, k), lerp(y - 260, y - 8, k), 10)
+  }
+}
+
+// ---------- timeline & boot ----------
+window.seek = seek
+window.__pending = () => texts.filter((t) => t.visible && (t._needsSync || t._isSyncing)).map((t) => JSON.stringify([t.text, t._needsSync, t._isSyncing])).join(' | ')
+window.__camPath = () => { const out = []; for (let b = 1; b <= 121; b += 0.125) { const c = camAt(at(b)); applyCam(c); out.push([b, camera.position.x, camera.position.z, c.T.x, c.T.z, camera.fov]) } return out }
+window.__cam = () => JSON.stringify([camera.position.toArray().map(Math.round), camera.near, camera.far, camera.fov])
+window.__vis = () => { const out = []; scene.traverseVisible((o) => { if (!o.isMesh) return; const b = new THREE.Box3().setFromObject(o); const s = b.getSize(V()); if (s.x > 1500 || s.y > 1500) out.push([o.type, o.material.type, o.renderOrder, s.toArray().map(Math.round), b.getCenter(V()).toArray().map(Math.round)]) }); return JSON.stringify(out) }
+window.timeline = () => ({ duration: DUR, bpm: BPM, beat: B, cues: cues(), voice: voice.map((v) => ({ file: `audio/voice/${String(v.n).padStart(2, '0')}.wav`, t: v.t, lead: v.lead })) })
+await build()
+// warm-up: the first frame after load has no shadow map yet (ShadowMaterial reads garbage), so render one before ready
+await seek(at(58)); await seek(at(58))
+window.ready = true
+const params = new URLSearchParams(location.search)
+if (params.has('t')) await seek(+params.get('t'))
+else if (!window.__RENDER__) { document.body.classList.add('preview'); const t0 = performance.now(); const loop = async () => { await seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop) }; loop() }
+</script>
+</body>
+</html>

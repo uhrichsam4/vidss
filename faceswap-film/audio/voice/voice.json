@@ -1,0 +1,252 @@
+[
+ {
+  "n": 0,
+  "beat": 1.5,
+  "line": "It started with one message.",
+  "key": "maker_quotes.lines[0]",
+  "t": 0.25,
+  "lead": 0.01,
+  "len": 1.34,
+  "end": 1.58
+ },
+ {
+  "n": 1,
+  "beat": 8.75,
+  "line": "Built in Claude Code, with builders, reviewers, and a harsh judge.",
+  "key": "making_of.built_in",
+  "t": 3.875,
+  "lead": 0.01,
+  "len": 3.327,
+  "end": 7.192
+ },
+ {
+  "n": 2,
+  "beat": 15.5,
+  "line": "The first version: six to eight frames a second.",
+  "key": "speed.first_version",
+  "t": 7.25,
+  "lead": 0.01,
+  "len": 2.439,
+  "end": 9.679
+ },
+ {
+  "n": 3,
+  "beat": 19.5,
+  "line": "Now: thirty.",
+  "key": "speed.now",
+  "t": 9.25,
+  "lead": 0.01,
+  "len": 0.852,
+  "end": 10.092
+ },
+ {
+  "n": 4,
+  "beat": 24.5,
+  "line": "Out of a thousand: three seventy-three. Then five seventy-eight.",
+  "key": "making_of.judge_out_of_1000_first_round / _second_round",
+  "t": 11.75,
+  "lead": 0.01,
+  "len": 3.393,
+  "end": 15.133
+ },
+ {
+  "n": 5,
+  "beat": 31.5,
+  "line": "Pick a face.",
+  "key": "app.start_screen.flow",
+  "t": 15.25,
+  "lead": 0.01,
+  "len": 0.727,
+  "end": 15.967
+ },
+ {
+  "n": 6,
+  "beat": 33.5,
+  "line": "Drag in a model.",
+  "key": "app.start_screen.flow",
+  "t": 16.25,
+  "lead": 0.01,
+  "len": 0.888,
+  "end": 17.128
+ },
+ {
+  "n": 7,
+  "beat": 42,
+  "line": "Start cam.",
+  "key": "app.start_screen.flow",
+  "t": 20.5,
+  "lead": 0.01,
+  "len": 0.73,
+  "end": 21.22
+ },
+ {
+  "n": 8,
+  "beat": 46.5,
+  "line": "Live face swap, from one photo, right on the Mac.",
+  "key": "app.what_it_does[0]",
+  "t": 22.75,
+  "lead": 0.01,
+  "len": 2.505,
+  "end": 25.245
+ },
+ {
+  "n": 9,
+  "beat": 51.75,
+  "line": "Thirty frames a second.",
+  "key": "speed.now",
+  "t": 25.375,
+  "lead": 0.01,
+  "len": 1.112,
+  "end": 26.477
+ },
+ {
+  "n": 10,
+  "beat": 53.75,
+  "line": "A 3D model follows your open hand.",
+  "key": "app.what_it_does[1]",
+  "t": 26.375,
+  "lead": 0.01,
+  "len": 2.147,
+  "end": 28.512
+ },
+ {
+  "n": 11,
+  "beat": 58,
+  "line": "Pinch: it stays exactly where it is. It only turns.",
+  "key": "app.what_it_does[2]",
+  "t": 28.5,
+  "lead": 0.01,
+  "len": 2.772,
+  "end": 31.262
+ },
+ {
+  "n": 12,
+  "beat": 65.5,
+  "line": "But the zoom was recognised zero percent of the time.",
+  "key": "making_of.what_the_recording_found",
+  "t": 32.25,
+  "lead": 0.01,
+  "len": 2.833,
+  "end": 35.073
+ },
+ {
+  "n": 13,
+  "beat": 71.25,
+  "line": "The 3D guess said the fingertips were apart.",
+  "key": "making_of.what_the_recording_found",
+  "t": 35.125,
+  "lead": 0.01,
+  "len": 2.342,
+  "end": 37.457
+ },
+ {
+  "n": 14,
+  "beat": 77,
+  "line": "Measured in the picture: one hundred percent.",
+  "key": "making_of.what_the_recording_found (prototype of the fix)",
+  "t": 38.0,
+  "lead": 0.01,
+  "len": 2.109,
+  "end": 40.099
+ },
+ {
+  "n": 15,
+  "beat": 81.25,
+  "line": "Three fingers: it grows, or shrinks.",
+  "key": "app.what_it_does[4]",
+  "t": 40.125,
+  "lead": 0.01,
+  "len": 1.683,
+  "end": 41.798
+ },
+ {
+  "n": 16,
+  "beat": 84.75,
+  "line": "Two quick pinches: it faces you.",
+  "key": "app.what_it_does[3]",
+  "t": 41.875,
+  "lead": 0.01,
+  "len": 1.753,
+  "end": 43.618
+ },
+ {
+  "n": 17,
+  "beat": 89.5,
+  "line": "A shelf of up to ten models.",
+  "key": "app.shelf_models_max, app.what_it_does[5]",
+  "t": 44.25,
+  "lead": 0.01,
+  "len": 1.38,
+  "end": 45.62
+ },
+ {
+  "n": 18,
+  "beat": 93.5,
+  "line": "Pinch, pull. It resists,",
+  "key": "app.what_it_does[5]",
+  "t": 46.25,
+  "lead": 0.01,
+  "len": 1.154,
+  "end": 47.394
+ },
+ {
+  "n": 19,
+  "beat": 97.75,
+  "line": "then pops into your hand.",
+  "key": "app.what_it_does[5]",
+  "t": 48.375,
+  "lead": 0.01,
+  "len": 1.178,
+  "end": 49.543
+ },
+ {
+  "n": 20,
+  "beat": 101,
+  "line": "A virtual camera for calls and OBS.",
+  "key": "app.what_it_does[7]",
+  "t": 50.0,
+  "lead": 0.01,
+  "len": 2.134,
+  "end": 52.124
+ },
+ {
+  "n": 21,
+  "beat": 105.5,
+  "line": "Hands stay in front of the face.",
+  "key": "app.what_it_does[6]",
+  "t": 52.25,
+  "lead": 0.01,
+  "len": 1.383,
+  "end": 53.623
+ },
+ {
+  "n": 22,
+  "beat": 108.5,
+  "line": "On a MacBook Pro, M4 Pro.",
+  "key": "app.runs_on",
+  "t": 53.75,
+  "lead": 0.01,
+  "len": 1.75,
+  "end": 55.491
+ },
+ {
+  "n": 23,
+  "beat": 113,
+  "line": "Everything runs on the Mac. Nothing is uploaded.",
+  "key": "app.runs_on",
+  "t": 56.0,
+  "lead": 0.01,
+  "len": 2.538,
+  "end": 58.529
+ },
+ {
+  "n": 24,
+  "beat": 117.5,
+  "line": "swapstudio.",
+  "key": "wordmark (maker)",
+  "t": 58.25,
+  "lead": 0.01,
+  "len": 0.842,
+  "end": 59.082
+ }
+]
