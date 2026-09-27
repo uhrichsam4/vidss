@@ -1,4 +1,4 @@
-# The song: lyrics, melody, an electronic instrumental synthesised in numpy, sung vocals (Kokoro + WORLD), mix.
+# The song (an ad for what the app does): lyrics, melody, an electronic instrumental synthesised in numpy, sung vocals (Kokoro + WORLD), mix.
 #   python3 tools/song.py  -> audio/song.wav (+ audio/song.mp3) and audio/song.json (bars, lines, syllable times)
 # 128 BPM, A minor, 34 bars (~64 s): intro 2 | verse 8 | pre 2 | chorus 8 | break 4 | chorus 8 | outro 2
 import json, os, numpy as np, soundfile as sf
@@ -16,21 +16,21 @@ SECT = [(0, 2, 'intro'), (2, 10, 'verse'), (10, 12, 'pre'), (12, 20, 'chorus'), 
 sect = lambda bar: next(n for a, e, n in SECT if a <= bar < e)
 # lyrics: (bar, text, [(midi, beats)] one note per syllable)
 LYR = [
-    (2, 'One message in the dark,', [(52, 1), (55, .5), (57, 1.5), (55, .5), (57, .5), (53, 4)]),
-    (4, 'six frames a second, falling apart.', [(52, .5), (55, .5), (57, .5), (60, 1), (57, .5), (55, 1), (55, .5), (52, .5), (55, 3)]),
-    (6, 'I said make it thirty, make it run,', [(52, .5), (55, .5), (57, 1), (57, .5), (60, 1), (57, .5), (55, .5), (55, .5), (53, 3)]),
-    (8, 'a harsh judge scoring every one.', [(52, .5), (55, 1), (57, 1), (60, 1), (59, .5), (57, .5), (55, .5), (55, 3)]),
-    (10, 'Pick a face, drop a model, press start!', [(57, .5), (57, .5), (60, 1), (57, .5), (57, .5), (62, .5), (60, .5), (62, 1), (64, 3)]),
-    (12, 'Swap my face, live, thirty frames,', [(60, 1), (60, .5), (64, 1.5), (62, 2), (60, 1), (62, .5), (62, 1.5)]),
-    (14, 'a model in my hand, it follows where I go.', [(57, .5), (60, .5), (60, .5), (59, .5), (57, .5), (64, 1.5), (62, .5), (60, .5), (59, .5), (57, .5), (59, .5), (55, 1.5)]),
-    (16, 'Pinch it and it stays, it only turns,', [(60, 1), (60, .5), (62, .5), (64, .5), (60, 1.5), (62, .5), (62, .5), (64, .5), (62, 2.5)]),
-    (18, "all on my Mac, nothing's uploaded.", [(57, 1), (57, .5), (60, .5), (64, 2), (62, .5), (60, .5), (59, .5), (57, .5), (55, 2)]),
-    (20, 'But the zoom said zero percent.', [(57, .5), (57, .5), (60, 1.5), (59, .5), (57, 1), (55, .5), (53, .5), (52, 3)]),
-    (22, 'The picture said together, so we fixed what it meant.', [(52, .5), (55, .5), (57, .5), (57, .5), (60, .5), (59, .5), (57, 1), (55, .5), (55, .5), (57, .5), (59, .5), (57, .5), (57, 1.5)]),
-    (24, 'Three fingers up and it grows,', [(60, 1), (60, .5), (62, .5), (64, 1), (62, .5), (60, .5), (62, 4)]),
-    (26, 'two quick pinches, it looks back at me,', [(57, .5), (60, .5), (64, 1), (62, .5), (60, .5), (59, 1), (57, .5), (59, .5), (55, 3)]),
-    (28, 'pull it off the shelf and it pops in my hand,', [(60, .5), (60, .5), (62, .5), (62, .5), (64, 1), (62, .5), (60, .5), (64, 1), (62, .5), (60, .5), (62, 2)]),
-    (30, 'hands in front of my face, never glitches.', [(57, 1), (57, .5), (60, .5), (59, .5), (57, .5), (64, 1.5), (62, .5), (60, .5), (59, .5), (57, 2)]),
+    (2, 'One photo, that is all it takes,', [(52, 1), (55, .5), (57, 1.5), (55, .5), (57, .5), (55, 1), (53, 3)]),
+    (4, 'swap your face, live, on the camera,', [(52, .5), (55, .5), (57, 1), (60, 1), (57, .5), (55, .5), (57, 1), (55, .5), (55, 2.5)]),
+    (6, 'thirty frames a second, smooth and clean,', [(52, .5), (55, .5), (57, 1), (57, .5), (60, 1), (57, .5), (55, 1), (55, .5), (53, 2.5)]),
+    (8, 'running on your Mac, not a cloud machine.', [(52, .5), (55, .5), (57, .5), (57, .5), (60, 1), (59, .5), (57, .5), (59, 1), (57, .5), (55, 2.5)]),
+    (10, 'Double click, pick a face, and start!', [(57, .5), (57, .5), (60, 1), (57, .5), (57, .5), (62, 1), (62, 1), (64, 3)]),
+    (12, 'Open your hand, a model appears,', [(60, 1), (60, .5), (62, .5), (64, 1.5), (62, .5), (60, 1), (62, .5), (62, .5), (62, 2)]),
+    (14, 'pinch it and it stays, it only turns,', [(60, 1), (60, .5), (62, .5), (64, .5), (60, 1.5), (62, .5), (62, .5), (64, .5), (62, 2.5)]),
+    (16, 'two quick pinches, it looks back at you,', [(57, .5), (60, .5), (64, 1), (62, .5), (60, .5), (59, 1), (57, .5), (59, .5), (55, 3)]),
+    (18, 'three fingers up, it grows, down, it shrinks.', [(57, 1), (57, .5), (60, .5), (64, 1), (62, .5), (64, 1.5), (60, 1), (59, .5), (57, 1.5)]),
+    (20, 'Reach for the shelf, ten models wait,', [(57, 1), (57, .5), (55, .5), (60, 1.5), (59, .5), (57, .5), (55, .5), (52, 3)]),
+    (22, 'pinch it, pull it, it fights back, then pops in your hand.', [(52, .5), (55, .5), (57, .5), (57, .5), (60, .5), (59, 1), (57, .5), (55, .5), (57, 1), (59, .5), (57, .5), (57, 1.5)]),
+    (24, 'Hands in front of your face,', [(60, 1), (60, .5), (62, .5), (64, 1), (62, 1), (62, 4)]),
+    (26, 'the face stays clean, it never glitches,', [(57, .5), (60, .5), (64, 1), (62, 1), (60, .5), (59, 1), (57, .5), (59, .5), (55, 2.5)]),
+    (28, 'send it to your calls and O. B. S.,', [(60, .5), (60, .5), (62, .5), (62, .5), (64, 1), (62, .5), (60, 1), (64, 1), (62, 2.5)]),
+    (30, 'an A. I. effect tag in the corner.', [(57, .5), (57, .5), (60, .5), (59, .5), (57, .5), (64, 1.5), (62, .5), (60, .5), (59, .5), (57, 2.5)]),
     (32, 'Swap studio.', [(57, 1), (60, 1), (59, 1), (57, 5)]),
 ]
 mtof = lambda m: 440 * 2 ** ((m - 69) / 12)
