@@ -45,3 +45,5 @@ faceswap-film/audio/voice/*.wav
 faceswap-film/node_modules/
 faceswap-song/audio/*.wav
 faceswap-song/audio/spec.png
+faceswap-song/out/
+faceswap-song/tmp/

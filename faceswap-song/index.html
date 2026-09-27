@@ -1,0 +1,579 @@
+<!doctype html>
+<!--
+  swapstudio: the song. A 1920x1080 lyric video for the app, in the style of the reference (kinetic words on every
+  syllable, dark HUD frames with corner marks, one orange accent, wireframe 3D, cuts on the beat).
+  The song (audio/song.wav, audio/song.json) sets every time: each word appears on the note it is sung on.
+  Every frame is a pure function of time in async seek(t); the maker's real hand (data/hand_motion.json) drives the
+  hand scenes and the model follows the app's rules, simulated once on load.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>swapstudio: the song</title>
+<style>html, body { margin: 0; background: #09090a; } canvas { display: block; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview canvas { transform: scale(var(--fit, 0.5)); transform-origin: center; }</style>
+<script type="importmap">{ "imports": {
+  "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/",
+  "troika-three-text": "./node_modules/troika-three-text/dist/troika-three-text.esm.js",
+  "troika-three-utils": "./node_modules/troika-three-utils/dist/troika-three-utils.esm.js",
+  "troika-worker-utils": "./node_modules/troika-worker-utils/dist/troika-worker-utils.esm.js",
+  "webgl-sdf-generator": "./node_modules/webgl-sdf-generator/dist/webgl-sdf-generator.mjs",
+  "bidi-js": "./node_modules/bidi-js/dist/bidi.mjs" } }</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js'
+import { Text } from 'troika-three-text'
+import { loadHand, PALM_J } from './hand.js'
+
+const W = 1920, H = 1080
+window.SIZE = [W, H]
+const COL = { bg: '#09090a', line: '#2a2a2e', grid: '#161618', dim: '#8a857e', text: '#f2eee6', accent: '#ff5a1f', paper: '#ece6da', ink: '#141414' }
+const FONT = { wide: 'assets/fonts/archivo-125-800.ttf', ui: 'assets/fonts/Geist-Regular.ttf', uiM: 'assets/fonts/Geist-Medium.ttf', uiS: 'assets/fonts/Geist-SemiBold.ttf',
+  mono: 'assets/fonts/GeistMono-Regular.ttf', monoM: 'assets/fonts/GeistMono-Medium.ttf', serif: 'assets/fonts/InstrumentSerif-Italic.woff' }
+
+// ---------- time ----------
+let SONG, BEAT, BAR, DUR
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x))
+const lerp = (a, c, p) => a + (c - a) * p
+const ease = (u) => { u = clamp(u); return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2 }
+const eout = (u) => 1 - Math.pow(1 - clamp(u), 3)
+function S(t, f, z) { if (t <= 0) return 0; const w = 2 * Math.PI * f; if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t)) }
+const pop = (t, t0, f = 3.4) => S(t - t0, f, 0.5)
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z)
+const tiny = (s) => Math.max(1e-4, s)
+
+// ---------- renderer ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+renderer.setPixelRatio(1); renderer.setSize(W, H)
+renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.NeutralToneMapping
+renderer.autoClear = false; renderer.localClippingEnabled = true
+renderer.setClearColor(new THREE.Color(COL.bg), 1)
+document.body.appendChild(renderer.domElement)
+const scene = new THREE.Scene()                                  // one scene; each shot shows its own objects
+const hud = new THREE.Scene()                                    // frame marks and labels, drawn last in pixels
+const lyr = new THREE.Scene()                                    // the sung words: screen space, over every shot
+const ortho = new THREE.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, -8000, 8000)
+const persp = new THREE.PerspectiveCamera(35, W / H, 1, 50000)
+const key = new THREE.DirectionalLight('#fff3e6', 2.2); key.position.set(600, 1400, 1200); scene.add(key, key.target)
+const rim = new THREE.DirectionalLight(COL.accent, 1.2); rim.position.set(-900, 300, -800); scene.add(rim)
+
+const managed = [], texts = []
+const hideAll = () => managed.forEach((m) => (m.visible = false))
+function add(o, parent = scene) { parent.add(o); managed.push(o); return o }
+function txt(str, { font = FONT.ui, size = 40, color = COL.text, ax = 'left', ay = 'middle', maxW = Infinity, lh = 1.1, ls = 0, order = 10, parent = scene, stroke = 0 } = {}) {
+  const t = new Text(); t.material = new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true })
+  Object.assign(t, { text: str, font, fontSize: size, color, anchorX: ax, anchorY: ay, maxWidth: maxW, lineHeight: lh, letterSpacing: ls })
+  if (stroke) { t.fillOpacity = 0; t.strokeWidth = stroke; t.strokeColor = color }
+  t.renderOrder = order; texts.push(t); return add(t, parent)
+}
+const syncOne = (t) => new Promise((r) => { if (t._needsSync && !t._isSyncing) return t.sync(r); const d = () => { t.removeEventListener('synccomplete', d); r() }; t.addEventListener('synccomplete', d); if (t._needsSync) t.sync() })
+const syncAll = async () => { for (let k = 0; k < 4; k++) { const ts = texts.filter((t) => t.visible && (t._needsSync || t._isSyncing)); if (!ts.length) return; await Promise.all(ts.map(syncOne)) } }
+const lineMat = (c = COL.line, o = 1) => new THREE.LineBasicMaterial({ color: c, transparent: o < 1, opacity: o, toneMapped: false })
+function rect(w, h, color, order = 1, parent = scene) { const m = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: true })), parent); m.scale.set(w, h, 1); m.renderOrder = order; return m }
+function frameLines(w, h, color = COL.text, parent = scene) {  // a rectangle outline (unit, scaled)
+  const g = new THREE.BufferGeometry().setFromPoints([V(-0.5, -0.5), V(0.5, -0.5), V(0.5, 0.5), V(-0.5, 0.5), V(-0.5, -0.5)])
+  const l = add(new THREE.Line(g, lineMat(color)), parent); l.scale.set(w, h, 1); l.renderOrder = 6; return l
+}
+function brackets(color = COL.text, parent = scene, arm = 0.14) {   // four corner brackets of a unit box
+  const P = []; for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { P.push(V(sx * 0.5, sy * 0.5), V(sx * (0.5 - arm), sy * 0.5), V(sx * 0.5, sy * 0.5), V(sx * 0.5, sy * (0.5 - arm))) }
+  const l = add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(P), lineMat(color)), parent); l.renderOrder = 7; return l
+}
+function place(o, x, y, z = 0, s = 1) { o.visible = true; o.position.set(x, y, z); if (typeof s === 'number') o.scale.setScalar(tiny(s)); return o }
+
+// ---------- data ----------
+let facts, hand, TCH, sim = {}
+const E = {}
+const imgCache = new Map()
+function frameImg(dir, i) {                                        // webcam frames (the maker's own clip), cached
+  const k = dir + i; if (!imgCache.has(k)) { const im = new Image(); im.src = `webcam/${dir}/${String(i).padStart(3, '0')}.jpg`; imgCache.set(k, im.decode().then(() => im)); if (imgCache.size > 24) imgCache.delete(imgCache.keys().next().value) }
+  return imgCache.get(k)
+}
+let camTrack
+async function setCam(tex, i) { i = clamp(Math.round(i), 0, 317); if (tex.userData.i === i) return; tex.image = await frameImg('before', i); tex.userData.i = i; tex.needsUpdate = true }
+
+// ================= lyrics: display words, syllables, emphasis =================
+// [display word, syllables it spans, emphasis?] per sung line, in the song's order
+const WORDS = [
+  [['One', 1], ['photo,', 2, 1], ["that's", 1], ['all', 1], ['it', 1], ['takes.', 1]],
+  [['swap', 1], ['your', 1], ['face,', 1], ['live,', 1, 1], ['on', 1], ['the', 1], ['camera.', 3]],
+  [['thirty', 2, 1], ['frames', 1], ['a', 1], ['second,', 2], ['smooth', 1], ['and', 1], ['clean.', 1]],
+  [['running', 2], ['on', 1], ['your', 1], ['Mac,', 1, 1], ['not', 1], ['a', 1], ['cloud', 1], ['machine.', 2]],
+  [['Double', 2], ['click,', 1], ['pick', 1], ['a', 1], ['face,', 1], ['and', 1], ['START', 1, 1]],
+  [['Open', 2], ['your', 1], ['hand,', 1], ['a', 1], ['model', 2], ['appears.', 2, 1]],
+  [['pinch', 1, 1], ['it', 1], ['and', 1], ['it', 1], ['stays,', 1], ['it', 1], ['only', 2], ['turns.', 1, 1]],
+  [['two', 1], ['quick', 1], ['pinches,', 2], ['it', 1], ['looks', 1], ['back', 1], ['at', 1], ['YOU.', 1, 1]],
+  [['three', 1], ['fingers', 2], ['up,', 1], ['it', 1], ['GROWS,', 1, 1], ['down,', 1], ['it', 1], ['shrinks.', 1, 1]],
+  [['Reach', 1], ['for', 1], ['the', 1], ['shelf,', 1, 1], ['ten', 1], ['models', 2], ['wait.', 1]],
+  [['pinch', 1], ['it,', 1], ['pull', 1], ['it,', 1], ['it', 1], ['fights', 1, 1], ['back,', 1], ['then', 1], ['POPS', 1, 1], ['in', 1], ['your', 1], ['hand.', 1]],
+  [['Hands', 1, 1], ['in', 1], ['front', 1], ['of', 1], ['your', 1], ['face,', 1]],
+  [['the', 1], ['face', 1], ['stays', 1], ['clean,', 1], ['it', 1], ['never', 2, 1], ['glitches.', 2]],
+  [['send', 1], ['it', 1], ['to', 1], ['your', 1], ['calls', 1, 1], ['and', 1], ['OBS.', 3, 1]],
+  [['an', 1], ['AI', 2, 1], ['effect', 2], ['tag', 1], ['in', 1], ['the', 1], ['corner.', 2]],
+  [['swap', 1], ['studio.', 3]],
+]
+// word times: the first syllable's note
+function lyricTimes() {
+  return SONG.lines.map((L, li) => { let s = 0; return WORDS[li].map(([w, n, em]) => { const t = L.syl_t[s]; s += n; return { w, t, em: !!em } }) })
+}
+let LT                                                               // [line][word] -> {w, t, em}
+// a lyric block: words set left to right, wrapping at maxW, each rising in on its own syllable
+function makeBlock(li, { size = 96, emSize = 1.15, font = FONT.wide, emFont = FONT.serif, upper = true, maxW = 1500, lh = 1.02, color = COL.text, emColor = COL.accent, order = 20 } = {}) {
+  const ws = LT[li].map((o) => {
+    const s = upper && !o.em ? o.w.toUpperCase() : o.w
+    const t = txt(s, { font: o.em ? emFont : font, size: o.em ? size * emSize : size, color: o.em ? emColor : color, ax: 'left', ay: 'bottom-baseline', order, parent: lyr })
+    t.visible = true; return { w: o.w, at: o.t, em: o.em, t }
+  })
+  return { li, ws, size, maxW, lh }
+}
+async function layoutBlocks(blocks) {
+  await syncAll()
+  for (const b of blocks) {
+    let x = 0, row = 0; const sp = b.size * 0.3
+    b.ws.forEach((w) => { const bb = w.t.textRenderInfo.blockBounds, wd = bb[2] - bb[0]; if (x > 0 && x + wd > b.maxW) { x = 0; row++ } w.x = x; w.row = row; w.wd = wd; x += wd + sp })
+    b.rows = row + 1; b.rowW = []; b.ws.forEach((w) => (b.rowW[w.row] = Math.max(b.rowW[w.row] || 0, w.x + w.wd)))
+    b.ws.forEach((w) => (w.t.visible = false))
+  }
+}
+// draw a block at (x, y) = top-left of its first row; align 'left' | 'center'; words rise through a mask line
+function drawBlock(b, t, x, y, { align = 'left', z = 0, rise = 0.14, out = 1e9, parent = null } = {}) {
+  for (const w of b.ws) {
+    const k = eout((t - w.at + 0.03) / rise); if (k <= 0) continue
+    const lead = align === 'center' ? -b.rowW[w.row] / 2 : 0
+    const baseY = y - (w.row + 1) * b.size * b.lh, leave = eout((t - out) / 0.2)
+    const yy = baseY - (1 - k) * b.size * 0.6 + leave * b.size * 1.1
+    w.t.visible = true; w.t.position.set(x + lead + w.x, yy, z)
+    const pl = w.t.material.clippingPlanes || (w.t.material.clippingPlanes = [new THREE.Plane(), new THREE.Plane()])
+    pl[0].set(V(0, 1, 0), -(baseY - b.size * 0.3)); pl[1].set(V(0, -1, 0), baseY + b.size * 1.05)
+  }
+}
+
+// ================= build =================
+async function build() {
+  ;[SONG, facts, TCH] = await Promise.all(['audio/song.json', 'data/facts.json', 'data/touches.json'].map((u) => fetch(u).then((r) => r.json())))
+  BAR = SONG.bar; BEAT = BAR / 4; DUR = SONG.duration
+  camTrack = await fetch('webcam/track.json').then((r) => r.json())
+  hand = await loadHand('data/hand_motion.json')
+  LT = lyricTimes()
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  scene.environment = pmrem.fromEquirectangular(await new RGBELoader().loadAsync('assets/hdri/monochrome_studio_02_1k.hdr')).texture
+  scene.environmentIntensity = 0.45
+  buildHud(); buildRings(); buildWell(); await loadModels(); buildHand(); buildProps()
+  E.word.visible = true; await syncAll(); E.wordW = E.word.textRenderInfo.blockBounds[2]; E.word.visible = false
+  E.blocks = WORDS.map((_, li) => makeBlock(li, BLOCK_STYLE[li] || {}))
+  await layoutBlocks(E.blocks)
+  simulate()
+}
+
+// ---------- the frame: corner marks, hairline grid, labels (the reference's HUD) ----------
+function buildHud() {
+  const P = [], m = 40, a = 30
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const x = sx * (W / 2 - m), y = sy * (H / 2 - m); P.push(V(x, y), V(x - sx * a, y), V(x, y), V(x, y - sy * a)) }
+  E.marks = add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(P), lineMat('#6b6760')), hud)
+  E.hudL = txt('SWAPSTUDIO', { font: FONT.monoM, size: 18, color: '#8a857e', ax: 'left', ay: 'top', ls: 0.12, parent: hud })
+  E.hudR = txt('', { font: FONT.mono, size: 18, color: '#8a857e', ax: 'right', ay: 'top', ls: 0.12, parent: hud })
+  E.hudB = txt('', { font: FONT.mono, size: 16, color: '#5f5b55', ax: 'left', ay: 'bottom', ls: 0.1, parent: hud })
+  // hairline grid (behind everything in flat shots)
+  const G = []; for (let x = -W; x <= W; x += 120) G.push(V(x, -H), V(x, H)); for (let y = -H; y <= H; y += 120) G.push(V(-W, y), V(W, y))
+  E.grid = add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(G), lineMat(COL.grid))); E.grid.renderOrder = 0
+}
+const SECTION = (t) => { const bar = t / BAR; return bar < 2 ? 'INTRO' : bar < 10 ? 'VERSE' : bar < 12 ? 'BUILD' : bar < 20 ? 'CHORUS' : bar < 24 ? 'BREAK' : bar < 32 ? 'CHORUS' : 'OUTRO' }
+function hudDraw(t, li) {
+  E.marks.visible = true
+  place(E.hudL, -W / 2 + 64, H / 2 - 56, 0, 1)
+  E.hudR.text = `${SECTION(t)}  /  ${li < 0 ? 'OPEN' : String(li + 1).padStart(2, '0') + ' OF 16'}`; place(E.hudR, W / 2 - 64, H / 2 - 56, 0, 1)
+  E.hudB.text = 'LIVE FACE SWAP  -  3D IN YOUR HAND  -  RUNS ON YOUR MAC'; place(E.hudB, -W / 2 + 64, -H / 2 + 50, 0, 1)
+}
+
+// ---------- topographic rings (the reference's contour lines) ----------
+function buildRings() {
+  E.rings = new THREE.Group(); add(E.rings)
+  for (let k = 0; k < 42; k++) {
+    const r0 = 40 + k * 26, pts = []
+    for (let i = 0; i <= 256; i++) {
+      const a = (i / 256) * Math.PI * 2, n = Math.sin(a * 3 + k * 0.7) * 0.05 + Math.sin(a * 5 - k * 0.31) * 0.035 + Math.sin(a * 9 + k) * 0.015
+      pts.push(V(Math.cos(a) * r0 * (1 + n * (0.4 + k / 42)), Math.sin(a) * r0 * (1 + n * (0.4 + k / 42)), 0))
+    }
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat(k % 5 === 0 ? '#4a4640' : '#2c2a28')); E.rings.add(l)
+  }
+  E.core = add(new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false })))
+  E.glow = add(new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.ShaderMaterial({ transparent: true, depthWrite: false, toneMapped: false,
+    uniforms: { c: { value: new THREE.Color(COL.accent) }, o: { value: 1 } },
+    vertexShader: 'varying vec2 v; void main(){ v = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 c; uniform float o; varying vec2 v; void main(){ float d = length(v); gl_FragColor = vec4(c, o * pow(max(0.0, 1.0 - d), 2.2) * 0.55); }' })))
+}
+// ---------- the gravity-well grid (the reference's warped wireframe floor) ----------
+function buildWell() {
+  const P = [], R = 3200, st = 110, depth = (x, z) => -520 * Math.exp(-(x * x + z * z) / (2 * 520 * 520))
+  for (let x = -R; x <= R; x += st) for (let z = -R; z < R; z += st / 4) P.push(V(x, depth(x, z), z), V(x, depth(x, z + st / 4), z + st / 4))
+  for (let z = -R; z <= R; z += st) for (let x = -R; x < R; x += st / 4) P.push(V(x, depth(x, z), z), V(x + st / 4, depth(x + st / 4, z), z))
+  E.well = add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(P), lineMat('#3a3632')))
+}
+// ---------- models ----------
+const MODELS = {}
+async function loadModels() {
+  const gl = new GLTFLoader()
+  for (let k = 1; k <= 6; k++) {
+    const o = (await gl.loadAsync(`assets/models/m${k}.glb`)).scene, box = new THREE.Box3().setFromObject(o), c = box.getCenter(V()), r = box.getBoundingSphere(new THREE.Sphere()).radius
+    o.position.sub(c); const wrap = new THREE.Group(); wrap.add(o); wrap.scale.setScalar(0.5 / r); MODELS['m' + k] = wrap
+  }
+}
+function modelInstance(name) {
+  const root = new THREE.Group(); root.add(SkeletonUtils.clone(MODELS[name])); root.traverse((m) => { if (m.isMesh) { m.frustumCulled = false; m.material = m.material.clone() } })
+  root.place = (p, d, q) => { root.visible = d > 0.5; root.position.copy(p); root.scale.setScalar(Math.max(1e-3, d)); if (q) root.quaternion.copy(q) }
+  return add(root)
+}
+// ---------- the 3D hand (the maker's real joints) ----------
+function buildHand() {
+  const m = new THREE.MeshStandardMaterial({ color: COL.text, roughness: 0.4, metalness: 0.1 })
+  E.hj = []; E.hb = []
+  for (let j = 0; j < 21; j++) E.hj.push(add(new THREE.Mesh(new THREE.SphereGeometry(1, 18, 12), m)))
+  hand.BONES.forEach(() => E.hb.push(add(new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 10), m))))
+  E.ring3 = add(new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 10, 64), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false })))
+}
+function drawHand(P, r = 7, br = 3.4) {
+  P.forEach((p, j) => { E.hj[j].visible = true; E.hj[j].position.copy(p); E.hj[j].scale.setScalar(r) })
+  hand.BONES.forEach(([a, c], k) => { const d = P[c].clone().sub(P[a]), L = d.length(); const cy = E.hb[k]; cy.visible = true; cy.position.copy(P[a]).addScaledVector(d, 0.5); cy.quaternion.setFromUnitVectors(V(0, 1, 0), d.normalize()); cy.scale.set(br, L, br) })
+}
+// joints in millimetres around the palm centre, at clip time c
+const handAt = (c) => hand.metresAt(c).map((v) => v.multiplyScalar(1000))
+
+// ---------- the model obeys the app (effect.py, rotation.py, pose.py), simulated once at 30 Hz ----------
+function simulate() {
+  const N = hand.N, R = [], pinch = TCH.touches[0], zoom = TCH.zoom, taps = TCH.touches.filter((t) => t.dur_s && t.dur_s < 0.5).slice(0, 2)
+  let yaw = 0, pitch = 0, v = 0, pinched0 = false, last = null, size = 1, face = null
+  const pp = (i) => { const p = hand.pic[hand.nearest(i)]; return [(p[4][0] + p[8][0]) / 2, (p[4][1] + p[8][1]) / 2] }
+  for (let i = 0; i < N; i++) {
+    const pinched = i >= pinch.start_f && i < pinch.end_f
+    if (pinched) { if (!pinched0) last = pp(i); const p = pp(i), dx = p[0] - last[0], dy = p[1] - last[1]; last = p; const dY = (2 * Math.PI * dx) / 640; yaw += dY; v = 0.6 * v + 0.4 * dY * 30; pitch = clamp(pitch + (2 * Math.PI * dy) / 640, -Math.PI / 3, Math.PI / 3) }
+    else { v *= Math.pow(0.5, 1 / 30 / 0.6); yaw += v / 30; if (Math.abs(v) < 0.08) { const w = 1 - Math.pow(0.5, 1 / 30 / 0.12), wr = Math.atan2(Math.sin(yaw), Math.cos(yaw)); if (Math.abs(wr) < 0.35) yaw -= wr * w; pitch *= 1 - w } }
+    pinched0 = pinched
+    if (taps.length === 2 && i === taps[1].start_f) face = { i, from: new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')) }
+    let q = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'))
+    if (face) { const k = clamp((i - face.i) / 7.5); q = face.from.clone().slerp(new THREE.Quaternion(), ease(k)); if (k >= 1) { yaw = 0; pitch = 0 } }
+    if (i >= zoom.middle_joined_f && i < zoom.let_go_f) { const p0 = pp(zoom.fingertips_met_f), p = pp(i); size = clamp(Math.pow(2, -((p[1] - p0[1]) / 720) / 0.25), 0.3, 4) }
+    R.push({ q, size, pinched })
+  }
+  sim.R = R
+}
+const simAt = (c) => sim.R[clamp(Math.floor(c * 30), 0, sim.R.length - 1)]
+
+// ---------- props used by several shots ----------
+function buildProps() {
+  // photo card + camera frame textures
+  E.camTex = new THREE.Texture(); E.camTex.colorSpace = THREE.SRGBColorSpace; E.camTex.userData.i = -1
+  E.camTex2 = new THREE.Texture(); E.camTex2.colorSpace = THREE.SRGBColorSpace; E.camTex2.userData.i = -1
+  E.photo = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: E.camTex, toneMapped: false }))); E.photo.renderOrder = 3
+  E.photoFrame = frameLines(1, 1, COL.text); E.photoBr = brackets(COL.accent)
+  E.scan = rect(1, 3, COL.accent, 8)
+  E.dots = [0, 1, 2, 3, 4].map(() => add(new THREE.Mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false }))))
+  E.faceBox = brackets(COL.accent, scene, 0.22)
+  E.labels = [0, 1, 2, 3, 4, 5].map(() => txt('', { font: FONT.mono, size: 20, color: COL.dim, ls: 0.08 }))
+  E.recDot = add(new THREE.Mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false })))
+  // big outline number, film strip
+  E.big30 = txt('30', { font: FONT.wide, size: 620, color: COL.text, ax: 'center', ay: 'middle', stroke: 3, order: 2 })
+  E.strip = [...Array(12)].map(() => { const tx = new THREE.Texture(); tx.colorSpace = THREE.SRGBColorSpace; tx.userData.i = -1; const m = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tx, toneMapped: false }))); m.renderOrder = 4; return { m, tx } })
+  // laptop (lines + a glowing screen), cloud outline and the strike
+  E.laptop = new THREE.Group(); add(E.laptop)
+  const base = new THREE.Mesh(new THREE.BoxGeometry(900, 26, 600), new THREE.MeshStandardMaterial({ color: '#1b1b1e', roughness: 0.5, metalness: 0.4 })); base.position.y = 13; E.laptop.add(base)
+  E.lid = new THREE.Group(); E.lid.position.set(0, 26, -300); E.laptop.add(E.lid)
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(900, 580, 18), new THREE.MeshStandardMaterial({ color: '#1b1b1e', roughness: 0.5, metalness: 0.4 })); lid.position.set(0, 290, 0); E.lid.add(lid)
+  const sc = document.createElement('canvas'); sc.width = 1024; sc.height = 640; const g = sc.getContext('2d')
+  g.fillStyle = '#0c0c0d'; g.fillRect(0, 0, 1024, 640); g.strokeStyle = '#2a2a2e'; for (let x = 0; x < 1024; x += 64) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 640); g.stroke() }
+  g.fillStyle = '#f2eee6'; g.font = '800 92px Archivo, Geist, sans-serif'; g.textAlign = 'center'; g.fillText('swapstudio', 500, 350); g.fillStyle = COL.accent; g.fillRect(760, 322, 26, 26)
+  const st = new THREE.CanvasTexture(sc); st.colorSpace = THREE.SRGBColorSpace
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(840, 525), new THREE.MeshBasicMaterial({ map: st, toneMapped: false })); screen.position.set(0, 290, 10); E.lid.add(screen)
+  const cl = []; const cloud = (cx, cy, r) => { for (let i = 0; i <= 64; i++) cl.push(V(cx + Math.cos((i / 64) * Math.PI * 2) * r, cy + Math.sin((i / 64) * Math.PI * 2) * r, 0)) }
+  const C = new THREE.Group(); for (const [x, y, r] of [[-110, 0, 90], [0, 50, 120], [120, 0, 95], [0, -40, 110]]) { cl.length = 0; cloud(x, y, r); C.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(cl.slice()), lineMat('#6b6760'))) }
+  E.cloud = C; add(C); E.strike = rect(1, 10, COL.accent, 30)
+  // double click, face cards, START flood
+  E.icon = rect(220, 220, '#2a2a2e', 5); E.iconIn = rect(96, 96, COL.accent, 6)
+  E.ripples = [0, 1].map(() => { const r = add(new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 64), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false, transparent: true }))); r.renderOrder = 7; return r })
+  E.cursor = makeCursor()
+  E.cards = [0, 1, 2, 3].map((k) => { const m = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: k === 0 ? E.camTex2 : faceStandIn(), toneMapped: false }))); m.renderOrder = 4; return { m, f: frameLines(1, 1, '#4a4640') } })
+  E.pickRing = brackets(COL.accent, scene, 0.5)
+  E.flood = rect(1, 1, COL.accent, 40)
+  E.startWord = txt('START', { font: FONT.wide, size: 420, color: COL.ink, ax: 'center', ay: 'middle', order: 41 })
+  // held + shelf models
+  E.hm = modelInstance('m1'); E.shelfM = ['m2', 'm3', 'm4', 'm5', 'm6'].map(modelInstance); E.popM = modelInstance('m4')
+  E.tiles = [...Array(10)].map(() => ({ f: frameLines(1, 1, '#4a4640'), fill: rect(1, 1, '#141416', 2) }))
+  E.band = add(new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false })))
+  E.orbit = [...'IT ONLY TURNS - IT ONLY TURNS - '].map((ch) => txt(ch, { font: FONT.wide, size: 34, color: COL.text, ax: 'center', ay: 'middle', order: 25 }))
+  E.ruler = [...Array(9)].map(() => rect(1, 1, COL.text, 20))
+  // glitch copies, call grid, menu, tag, wordmark
+  E.gl = [0, 1, 2].map((k) => txt('GLITCHES', { font: FONT.wide, size: 190, color: ['#ff2a2a', '#26e0ff', COL.text][k], ax: 'center', ay: 'middle', order: 30 + k }))
+  E.tilesC = [...Array(6)].map((_, k) => ({ bg: rect(1, 1, '#161618', 3), f: frameLines(1, 1, '#3a3632'), t: txt(['AM', '', 'JR', 'KS', 'TL', 'NO'][k], { font: FONT.uiS, size: 44, color: '#6b6760', ax: 'center' }) }))
+  E.callCam = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: E.camTex, toneMapped: false }))); E.callCam.renderOrder = 4
+  E.menu = rect(1, 1, '#1d1d20', 30); E.menuF = frameLines(1, 1, '#4a4640')
+  E.menuT = ['CAMERA', 'Built-in camera', 'OBS Virtual Camera'].map((s, k) => txt(s, { font: k ? FONT.ui : FONT.monoM, size: k ? 30 : 18, color: k ? COL.text : COL.dim, order: 32, ls: k ? 0 : 0.1 }))
+  E.menuHl = rect(1, 1, '#2c2a28', 31); E.tick = makeTick()
+  E.tag = rect(1, 1, 'rgb(20,20,20)', 33); E.tagT = txt('AI effect', { font: FONT.uiM, size: 60, color: '#ffffff', ax: 'center', order: 34 })
+  E.word = txt('swapstudio', { font: FONT.wide, size: 230, color: COL.text, ax: 'center', ay: 'middle', order: 20 }); E.wordDot = rect(1, 1, COL.accent, 21)
+  E.tagline = txt(facts.app.runs_on.split('. ')[1], { font: FONT.mono, size: 24, color: COL.dim, ax: 'center', ls: 0.08 })
+  E.prompt = rect(1, 1, '#121214', 20); E.promptF = frameLines(1, 1, '#3a3632'); E.promptT = txt('', { font: FONT.monoM, size: 44, color: COL.accent, order: 21 })
+  E.promptL = txt('PROMPT 01', { font: FONT.mono, size: 18, color: COL.dim, ls: 0.1, order: 21 })
+}
+function faceStandIn() {
+  const c = document.createElement('canvas'); c.width = 240; c.height = 300; const g = c.getContext('2d')
+  g.fillStyle = '#18181b'; g.fillRect(0, 0, 240, 300); g.strokeStyle = '#3a3632'; g.lineWidth = 2; g.beginPath(); g.arc(120, 120, 50, 0, 7); g.stroke(); g.beginPath(); g.ellipse(120, 300, 100, 90, 0, Math.PI, 0); g.stroke()
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t
+}
+function makeCursor() {
+  const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0, -38); s.lineTo(10, -28); s.lineTo(18, -44); s.lineTo(24, -41); s.lineTo(16, -26); s.lineTo(30, -26); s.lineTo(0, 0)
+  const g = new THREE.Group(); const e = new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color: '#000', toneMapped: false })); e.scale.setScalar(1.2); e.position.set(-2, 2, 0); e.renderOrder = 50
+  const f = new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color: COL.text, toneMapped: false })); f.position.z = 0.5; f.renderOrder = 51; g.add(e, f); g.scale.setScalar(1.6); return add(g)
+}
+function makeTick() {
+  const s = new THREE.Shape(); s.moveTo(-0.5, 0.05); s.lineTo(-0.36, 0.2); s.lineTo(-0.12, -0.05); s.lineTo(0.38, 0.45); s.lineTo(0.52, 0.31); s.lineTo(-0.12, -0.33); s.lineTo(-0.5, 0.05)
+  const m = add(new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({ color: COL.accent, toneMapped: false }))); m.renderOrder = 33; return m
+}
+
+// ================= shots =================
+// lyric block styles per line (size, wrap)
+const BLOCK_STYLE = {
+  0: { size: 150, maxW: 900 }, 1: { size: 118, maxW: 900 }, 2: { size: 80, maxW: 780 }, 3: { size: 104, maxW: 1500 }, 4: { size: 110, maxW: 1700 },
+  5: { size: 108, maxW: 1000 }, 6: { size: 92, maxW: 1400 }, 7: { size: 104, maxW: 1100 }, 8: { size: 96, maxW: 1300 }, 9: { size: 110, maxW: 1100 },
+  10: { size: 86, maxW: 1500 }, 11: { size: 130, maxW: 900 }, 12: { size: 96, maxW: 1300 }, 13: { size: 96, maxW: 820 }, 14: { size: 96, maxW: 1300 }, 15: { size: 120, maxW: 1700 },
+}
+const lineT = (li) => SONG.lines[li].t, lineEnd = (li) => (li + 1 < SONG.lines.length ? SONG.lines[li + 1].t : DUR)
+function useOrtho(zoom = 1, x = 0, y = 0) { ortho.left = -W / 2 / zoom + x; ortho.right = W / 2 / zoom + x; ortho.top = H / 2 / zoom + y; ortho.bottom = -H / 2 / zoom + y; ortho.updateProjectionMatrix(); return ortho }
+function usePersp(pos, tgt, fov = 35) { persp.position.copy(pos); persp.lookAt(tgt); persp.fov = fov; persp.updateProjectionMatrix(); key.target.position.copy(tgt); key.position.copy(tgt).add(V(700, 1500, 1200)); return persp }
+
+// intro: contour rings breathe out of an orange point; a prompt types "open swapstudio"
+function shotIntro(t) {
+  const cam = useOrtho(1 + 0.08 * t)
+  E.grid.visible = true
+  const g = eout(t / 2.2); E.rings.visible = true; E.rings.scale.setScalar(lerp(0.2, 1, g)); E.rings.rotation.z = t * 0.05
+  place(E.core, 0, 0, 1, 10 + 4 * Math.sin(t * 6)); place(E.glow, 0, 0, 0.5, 260 * g)
+  const pt = clamp((t - 1.3) / 1.6), s = '> open swapstudio', typed = s.slice(0, Math.round(pt * s.length)) + (Math.floor(t * 4) % 2 ? '_' : ' ')
+  if (t > 1.1) { const k = eout((t - 1.1) / 0.3); place(E.prompt, 0, -300, 10); E.prompt.scale.set(900 * k, 120, 1); place(E.promptF, 0, -300, 11); E.promptF.scale.set(900 * k, 120, 1)
+    E.promptT.text = typed; place(E.promptT, -410, -300, 12, 1); place(E.promptL, -450, -222, 12, 1) }
+  return cam
+}
+// 1: One photo, that's all it takes: a photo card is scanned; a face box and five points land on it
+async function shot1(t, li) {
+  const cam = useOrtho(1.0 + 0.03 * (t - lineT(li))); E.grid.visible = true
+  await setCam(E.camTex, 150)
+  const k = eout((t - lineT(li)) / 0.35), X = 430, Y = 20, w = 520, h = 650
+  place(E.photo, X, Y + (1 - k) * -80, 2); E.photo.scale.set(w, h, 1); place(E.photoFrame, X, Y, 3); E.photoFrame.scale.set(w + 24, h + 24, 1)
+  const sc = clamp((t - lineT(li) - 0.5) / 1.4); if (sc > 0 && sc < 1) { place(E.scan, X, Y + h / 2 - sc * h, 5); E.scan.scale.set(w + 60, 4, 1) }
+  const F = camTrack.frames[150], fx = (u) => X + (u - 0.5) * w, fy = (v) => Y + (0.5 - v) * h
+  if (sc > 0.55) { const [x0, y0, x1, y1] = F.box; place(E.faceBox, (fx(x0) + fx(x1)) / 2, (fy(y0) + fy(y1)) / 2, 6); E.faceBox.scale.set((fx(x1) - fx(x0)) * eout((sc - 0.55) / 0.3), (fy(y0) - fy(y1)) * eout((sc - 0.55) / 0.3), 1) }
+  F.pts.forEach(([u, v], j) => { const s = pop(t, lineT(li) + 1.3 + j * 0.12); if (s > 0.01) place(E.dots[j], fx(u), fy(v), 7, 9 * s) })
+  if (sc > 0.9) { E.labels[0].text = 'FACE FOUND'; place(E.labels[0], X - w / 2, Y - h / 2 - 40, 5, 1) }
+  drawBlock(E.blocks[li], t, -860, 380)
+  return cam
+}
+// 2: swap your face, live, on the camera: the maker's clip in a viewfinder, the face tracked every frame
+async function shot2(t, li, frame0 = 45, block = true) {
+  const cam = useOrtho(1.04 - 0.04 * (t - lineT(li)) / 3.75); E.grid.visible = true
+  const i = frame0 + (t - lineT(li)) * 30; await setCam(E.camTex, i)
+  const X = 420, Y = 0, w = 600, h = 750
+  place(E.photo, X, Y, 2); E.photo.scale.set(w, h, 1); place(E.photoBr, X, Y, 3); E.photoBr.scale.set(w + 40, h + 40, 1)
+  const F = camTrack.frames[clamp(Math.round(i), 0, 317)], fx = (u) => X + (u - 0.5) * w, fy = (v) => Y + (0.5 - v) * h
+  const [x0, y0, x1, y1] = F.box; place(E.faceBox, (fx(x0) + fx(x1)) / 2, (fy(y0) + fy(y1)) / 2, 6); E.faceBox.scale.set(fx(x1) - fx(x0), fy(y0) - fy(y1), 1)
+  F.pts.forEach(([u, v], j) => place(E.dots[j], fx(u), fy(v), 7, 7))
+  place(E.recDot, X - w / 2 + 34, Y + h / 2 - 34, 8, Math.floor(t * 2) % 2 ? 9 : 0.01); E.labels[1].text = 'LIVE'; E.labels[1].color = COL.accent; place(E.labels[1], X - w / 2 + 54, Y + h / 2 - 34, 8, 1)
+  E.labels[2].text = 'CAMERA  1280 X 720'; E.labels[2].color = COL.dim; place(E.labels[2], X - w / 2, Y - h / 2 - 40, 5, 1)
+  if (block) drawBlock(E.blocks[li], t, -860, 340)
+  return cam
+}
+// 3: thirty frames a second: a huge outline 30, a film strip of real frames sliding past
+async function shot3(t, li) {
+  const cam = useOrtho(1); E.grid.visible = true
+  const k = eout((t - lineT(li)) / 0.4); place(E.big30, -470, 120, 1, lerp(1.3, 1, k))
+  const off = ((t - lineT(li)) * 30 * 160) % 160
+  for (let n = 0; n < 12; n++) { const s = E.strip[n]; await setCam(s.tx, 60 + ((Math.floor((t - lineT(li)) * 30) + n * 7) % 250)); place(s.m, -W / 2 + n * 180 + 90 - off * 0, -300, 3); s.m.scale.set(160, 200, 1) }
+  E.labels[3].text = 'FRAMES / SECOND'; place(E.labels[3], 150, 330, 5, 1)
+  drawBlock(E.blocks[li], t, 150, 290)
+  return cam
+}
+// 4: running on your Mac, not a cloud machine: a laptop on the grid; the cloud gets struck out
+function shot4(t, li) {
+  const u = (t - lineT(li)) / 3.75, cam = usePersp(V(lerp(-1100, -700, u), 700, 1900), V(0, 260, 0), 34)
+  E.well.visible = true; E.well.position.set(0, -60, 0)
+  E.laptop.visible = true; E.laptop.position.set(0, 0, 0); E.lid.rotation.x = lerp(1.5, -0.25, eout(u * 3))
+  const cw = LT[li].find((w) => w.w === 'cloud').t
+  if (t > cw - 0.1) { place(E.cloud, 900, 700, 0, 1.4); E.cloud.quaternion.copy(cam.quaternion)
+    const s = eout((t - LT[li].find((w) => w.w === 'machine.').t) / 0.25); if (s > 0) { place(E.strike, 900, 700, 5); E.strike.quaternion.copy(cam.quaternion); E.strike.scale.set(560 * s, 14, 1) } }
+  drawBlock(E.blocks[li], t, -880, 40)
+  return cam
+}
+// 5: double click / pick a face / START: three cuts on the words, the last one floods orange
+async function shot5(t, li) {
+  const cam = useOrtho(1); E.grid.visible = true
+  const [dou, , pick, , , and, start] = LT[li].map((w) => w.t)
+  if (t < pick) {
+    place(E.icon, 0, 60, 5); place(E.iconIn, 0, 60, 6)
+    for (const [r, tc] of [[E.ripples[0], dou + 0.02], [E.ripples[1], dou + 0.26]]) { const k = clamp((t - tc) / 0.45); if (k > 0 && k < 1) { place(r, 30, 20, 8, 60 + 260 * eout(k)); r.material.opacity = 1 - k } }
+    place(E.cursor, 40 + 200 * (1 - eout((t - lineT(li)) / 0.3)), 20 - 120 * (1 - eout((t - lineT(li)) / 0.3)), 20, 1.6)
+    drawBlock(E.blocks[li], t, -860, -200)
+  } else if (t < start) {
+    await setCam(E.camTex2, 150)
+    E.cards.forEach((c, k) => { const s = pop(t, pick + k * 0.05, 3.2), x = -540 + k * 360; place(c.m, x, 60, 4); c.m.scale.set(280 * s, 350 * s, 1); place(c.f, x, 60, 5); c.f.scale.set(300 * s, 370 * s, 1) })
+    const r = eout((t - pick - 0.25) / 0.3); if (r > 0) { place(E.pickRing, -540, 60, 6); E.pickRing.scale.set(330, 400, 1) }
+    place(E.cursor, lerp(200, -500, eout((t - pick) / 0.35)), lerp(-300, 20, eout((t - pick) / 0.35)), 20, 1.6)
+    drawBlock(E.blocks[li], t, -860, -200)
+  } else {
+    const f = eout((t - start) / 0.12); place(E.flood, 0, 0, 40); E.flood.scale.set(W * 1.2 * f, H * 1.2 * f, 1)
+    const s = pop(t, start + 0.04, 2.6); place(E.startWord, 0, 0, 41, lerp(1.35, 1, clamp(s)))
+  }
+  return cam
+}
+// the hand shots: the maker's real joints over the gravity-well grid, the model above the palm
+function handScene(t, c, { orbit = 0, dist = 470, h = 340, fov = 34 } = {}) {
+  const P = handAt(c).map((v) => v.add(V(0, 200, 0)))
+  drawHand(P)
+  const a = -0.35 + orbit, T = V(-70, 260, 0), cam = usePersp(T.clone().add(V(Math.sin(a) * dist, h - 250, Math.cos(a) * dist)), T, fov)
+  E.well.visible = true; E.well.position.set(0, -80, 0)
+  return { P, cam, palm: PALM_J.reduce((s, j) => s.add(P[j]), V()).multiplyScalar(1 / 5) }
+}
+function palmNormal(P) { const n = P[5].clone().sub(P[0]).cross(P[17].clone().sub(P[0])).normalize(); if (n.z < 0) n.negate(); return n }
+// 6: Open your hand, a model appears
+function shot6(t, li) {
+  const c = 1.6 + (t - lineT(li)), { P, cam, palm } = handScene(t, c, { orbit: 0.12 * (t - lineT(li)) })
+  const ap = LT[li].find((w) => w.w === 'appears.').t, s = pop(t, ap - 0.05, 2.8)
+  if (s > 0.01) E.hm.place(palm.clone().addScaledVector(palmNormal(P), 60).add(V(0, 70, 0)), 150 * s, simAt(c).q)
+  drawBlock(E.blocks[li], t, -880, 440, { parent: null })
+  return cam
+}
+// 7: pinch it and it stays, it only turns: the pinch lands on "pinch"; the words orbit the model
+function shot7(t, li) {
+  const c = TCH.touches[0].start_s + (t - LT[li][0].t), { P, cam, palm } = handScene(t, c, { orbit: 0.2 + 0.1 * (t - lineT(li)) })
+  const R = simAt(c), p0 = handAt(TCH.touches[0].start_s).map((v) => v.add(V(0, 200, 0))), pal0 = PALM_J.reduce((s, j) => s.add(p0[j]), V()).multiplyScalar(1 / 5)
+  const at_ = R.pinched ? pal0.clone().addScaledVector(palmNormal(p0), 60).add(V(0, 60, 0)) : palm.clone().addScaledVector(palmNormal(P), 60).add(V(0, 60, 0))
+  E.hm.place(at_, 150, R.q)
+  if (R.pinched) { const tip = P[4].clone().add(P[8]).multiplyScalar(0.5); place(E.ring3, tip.x, tip.y, tip.z, 22); E.ring3.quaternion.copy(cam.quaternion) }
+  // the words on a ring round the model, turning
+  const tw = LT[li].find((w) => w.w === 'only').t
+  if (t > tw - 0.2) E.orbit.forEach((ch, k) => { const a = (k / E.orbit.length) * Math.PI * 2 + (t - tw) * 1.2, r = 210; place(ch, at_.x + Math.cos(a) * r, at_.y + 40 + Math.sin(a) * 40, at_.z + Math.sin(a) * r, 1); ch.quaternion.copy(cam.quaternion) })
+  drawBlock(E.blocks[li], t, -880, 440)
+  return cam
+}
+// 8: two quick pinches, it looks back at YOU: the two real taps land on "two" and "pinch-"
+function shot8(t, li) {
+  const c = TCH.touches.filter((x) => x.dur_s && x.dur_s < 0.5)[0].start_s + (t - LT[li][0].t), { P, cam, palm } = handScene(t, c, { orbit: 0.4 - 0.05 * (t - lineT(li)) })
+  const R = simAt(c); E.hm.place(palm.clone().addScaledVector(palmNormal(P), 60).add(V(0, 70, 0)), 150, R.q)
+  const i = Math.floor(c * 30), taps = TCH.touches.filter((x) => x.dur_s && x.dur_s < 0.5).slice(0, 2)
+  taps.forEach((x) => { if (i >= x.start_f && i < x.end_f + 4) { const tip = P[4].clone().add(P[8]).multiplyScalar(0.5), k = (i - x.start_f) / 12; place(E.ring3, tip.x, tip.y, tip.z, 18 + 30 * k); E.ring3.quaternion.copy(cam.quaternion) } })
+  drawBlock(E.blocks[li], t, -880, 440)
+  return cam
+}
+// 9: three fingers up, it GROWS, down, it shrinks: "grows" lands on a real pump top, "shrinks" on a bottom
+function shot9(t, li) {
+  const gw = LT[li].find((w) => w.w === 'GROWS,').t, c = TCH.zoom.pump_top_s[0] + (t - gw), { P, cam, palm } = handScene(t, c, { orbit: -0.1, dist: 520 })
+  const R = simAt(c); E.hm.place(palm.clone().add(V(0, 110, 60)), 95 * R.size, new THREE.Quaternion())
+  // a ruler ticks beside it
+  E.ruler.forEach((r, k) => { place(r, palm.x + 230, 60 + k * 40, palm.z, 1); r.scale.set(k % 4 === 0 ? 44 : 24, 4, 1); r.quaternion.copy(cam.quaternion) })
+  drawBlock(E.blocks[li], t, -880, 440)
+  return cam
+}
+// 10: Reach for the shelf, ten models wait (the break): ten slots, six models as flat pictures, rings behind
+function shot10(t, li) {
+  const cam = useOrtho(1 + 0.03 * (t - lineT(li))); E.grid.visible = true
+  E.rings.visible = true; E.rings.scale.setScalar(1.1); E.rings.rotation.z = t * 0.03; E.rings.position.set(480, 0, -10)
+  const tl = 150
+  E.tiles.forEach((tile, k) => { const s = pop(t, lineT(li) + 0.1 + k * 0.08, 3), x = 330 + (k % 2) * (tl + 30), y = 360 - Math.floor(k / 2) * (tl + 30)
+    place(tile.fill, x, y, 1); tile.fill.scale.set(tl * s, tl * s, 1); place(tile.f, x, y, 2); tile.f.scale.set(tl * s, tl * s, 1)
+    if (k < 5) E.shelfM[k].place(V(x, y, 3), tl * 0.9 * s, new THREE.Quaternion().setFromEuler(new THREE.Euler(0.2, -0.5, 0))) })
+  E.labels[4].text = `UP TO ${facts.app.shelf_models_max}`; place(E.labels[4], 330 - tl / 2, 360 + tl / 2 + 30, 5, 1)
+  drawBlock(E.blocks[li], t, -860, 330)
+  return cam
+}
+// 11: pinch it, pull it, it fights back, then POPS in your hand: the shelf pull, popping on "pops"
+function shot11(t, li) {
+  const pw = LT[li].find((w) => w.w === 'POPS').t, c = 8.367 + (t - pw) + 0.12, { P, cam, palm } = handScene(t, c, { orbit: -0.15, dist: 620 })
+  const tl = 90, col = V(250, 250, -60), popped = t >= pw
+  for (let k = 0; k < 5; k++) { const y = col.y + 240 - k * (tl + 16); place(E.tiles[k].fill, col.x, y, col.z); E.tiles[k].fill.scale.set(tl, tl, 1); place(E.tiles[k].f, col.x, y, col.z + 1); E.tiles[k].f.scale.set(tl, tl, 1)
+    E.tiles[k].fill.quaternion.copy(cam.quaternion); E.tiles[k].f.quaternion.copy(cam.quaternion)
+    if (!(k === 2 && popped)) E.shelfM[k].place(V(col.x, y, col.z + 2), tl * 0.85, cam.quaternion.clone()) }
+  // the pulled picture follows less and less and stretches; a band holds it until the pop
+  const i = Math.floor(c * 30), pch = TCH.touches[0], gr = i >= pch.start_f && !popped
+  const tip = P[4].clone().add(P[8]).multiplyScalar(0.5), tile = V(col.x, col.y + 240 - 2 * (tl + 16), col.z + 2)
+  if (gr) { const x = clamp(tip.distanceTo(tile) / 520), pic = tile.clone().lerp(tip, 1.3 * (1 - Math.pow(1 - x, 1.5)) * 0.5); E.shelfM[2].place(pic, tl * 0.85 * (1 + 0.3 * x), cam.quaternion.clone())
+    E.band.visible = true; E.band.geometry.dispose(); E.band.geometry = new THREE.TubeGeometry(new THREE.LineCurve3(tile, pic), 1, lerp(5, 1.5, x), 8) }
+  if (popped) { const s = S(t - pw, 1.6, 0.45); E.popM.place(palm.clone().add(V(0, 130, 60)), lerp(tl * 0.85, 180, s), new THREE.Quaternion().slerp(cam.quaternion, 0)) }
+  drawBlock(E.blocks[li], t, -880, 460)
+  return cam
+}
+// 12: Hands in front of your face: the maker's hand passing in front of their face, the face box holds
+async function shot12(t, li) { return shot2(t, li, 150) }
+// 13: the face stays clean, it never glitches: the word breaks into colour slices, then snaps clean
+async function shot13(t, li) {
+  const cam = await shot2(t, li, 60, false)
+  const gw = LT[li].find((w) => w.w === 'glitches.').t
+  if (t > gw - 0.05) {
+    const k = clamp((t - gw) / 0.6), jit = (1 - k) * 22 * Math.sin(t * 90)
+    E.gl.forEach((g, n) => { place(g, -420 + (n === 0 ? jit : n === 1 ? -jit : 0), -260, 30 + n, 1); if (n < 2) g.visible = k < 1 })
+  }
+  drawBlock(E.blocks[li], t, -860, 380)
+  return cam
+}
+// 14: send it to your calls and OBS: a call grid, your tile live; the menu picks OBS Virtual Camera
+async function shot14(t, li) {
+  const cam = useOrtho(1); E.grid.visible = true
+  await setCam(E.camTex, 200 + (t - lineT(li)) * 30)
+  const tw = 380, th = 214
+  E.tilesC.forEach((c, k) => { const x = (k % 3 - 1) * (tw + 20) + 420, y = 150 - Math.floor(k / 3) * (th + 24), s = pop(t, lineT(li) + k * 0.06, 3)
+    place(c.bg, x, y, 3); c.bg.scale.set(tw * s, th * s, 1); place(c.f, x, y, 4); c.f.scale.set(tw * s, th * s, 1); if (k !== 1) place(c.t, x, y, 5, s)
+    if (k === 1) { place(E.callCam, x, y, 4.5); E.callCam.scale.set(tw * s, th * s, 1) } })
+  const ob = LT[li].find((w) => w.w === 'OBS.').t, mo = eout((t - (ob - 0.6)) / 0.25)
+  if (mo > 0) { const mx = 420, my = -250; place(E.menu, mx, my, 30); E.menu.scale.set(560, 210 * mo, 1); place(E.menuF, mx, my, 31); E.menuF.scale.set(560, 210 * mo, 1)
+    E.menuT.forEach((m, k) => place(m, mx - 250, my + 70 - k * 60, 32, 1))
+    if (t > ob) { place(E.menuHl, mx, my - 50, 31); E.menuHl.scale.set(530, 52, 1); place(E.tick, mx + 230, my - 50, 33, 30 * eout((t - ob) / 0.2)) } }
+  drawBlock(E.blocks[li], t, -880, 440)
+  return cam
+}
+// 15: an AI effect tag in the corner: the app's own badge, zoomed until it fills the frame
+async function shot15(t, li) {
+  const u = eout((t - lineT(li)) / 2.2), cam = useOrtho(lerp(1, 2.2, u), lerp(0, -330, u), lerp(0, -170, u)); E.grid.visible = true
+  await setCam(E.camTex, 230 + (t - lineT(li)) * 30)
+  place(E.photo, 0, 0, 2); E.photo.scale.set(960, 540, 1); place(E.photoBr, 0, 0, 3); E.photoBr.scale.set(1000, 580, 1)
+  // draw_badge: white "AI effect" on a rounded rgb(20,20,20) box at 60%, bottom-left, text 3% of the picture height, margin 2%
+  const ph = 540, fs = ph * 0.03, m = ph * 0.02, bw = fs * 5.2, bh = fs * 1.6
+  place(E.tag, -480 + m + bw / 2, -270 + m + bh / 2, 5); E.tag.scale.set(bw, bh, 1); E.tag.material.opacity = 0.6
+  E.tagT.fontSize = fs; place(E.tagT, -480 + m + bw / 2, -270 + m + bh / 2, 6, 1)
+  place(E.photoBr, -480 + m + bw / 2, -270 + m + bh / 2, 7); E.photoBr.scale.set(bw * 1.6 * (1 + 0.1 * Math.sin(t * 8)), bh * 2.2, 1)
+  drawBlock(E.blocks[li], t, -860, 470)
+  return cam
+}
+// 16: swap studio.
+function shotEnd(t, li) {
+  const cam = useOrtho(1 + 0.02 * (t - lineT(li))); E.grid.visible = true
+  E.rings.visible = true; E.rings.scale.setScalar(1.3); E.rings.rotation.z = t * 0.03; E.rings.position.set(0, 0, -10)
+  const s = pop(t, lineT(li), 2.4); place(E.word, -20, 30, 20, lerp(0.8, 1, clamp(s)))
+  place(E.wordDot, -20 + E.wordW * lerp(0.8, 1, clamp(s)) + 40, 30 - 70, 21); E.wordDot.scale.set(46 * s, 46 * s, 1)
+  if (t > lineT(li) + 1) place(E.tagline, 0, -160, 20, 1)
+  return cam
+}
+const SHOTS = [shot1, shot2, shot3, shot4, shot5, shot6, shot7, shot8, shot9, shot10, shot11, shot12, shot13, shot14, shot15, shotEnd]
+
+// ================= seek =================
+async function seek(tIn) {
+  const t = clamp(tIn, 0, DUR - 1e-6)
+  hideAll()
+  E.rings.position.set(0, 0, -10)
+  let li = SONG.lines.findIndex((L, k) => t >= L.t && t < lineEnd(k))
+  const cam = li < 0 ? shotIntro(t) : await SHOTS[li](t, li)
+  hudDraw(t, li)
+  await syncAll()
+  renderer.clear(); renderer.render(scene, cam); renderer.clearDepth(); renderer.render(lyr, hudCam); renderer.clearDepth(); renderer.render(hud, hudCam)
+}
+const hudCam = new THREE.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, -100, 100)
+const useHud = () => hudCam
+
+window.seek = seek
+window.timeline = () => ({ duration: DUR, bpm: 128, beat: BEAT, cues: [] })
+await build()
+await seek(20); await seek(20)
+window.ready = true
+const params = new URLSearchParams(location.search)
+if (params.has('t')) await seek(+params.get('t'))
+else if (!window.__RENDER__) { document.body.classList.add('preview'); const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth / W, innerHeight / H)); fit(); addEventListener('resize', fit); const t0 = performance.now(); const loop = async () => { await seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop) }; loop() }
+</script>
+</body>
+</html>

@@ -16,7 +16,7 @@ SECT = [(0, 2, 'intro'), (2, 10, 'verse'), (10, 12, 'pre'), (12, 20, 'chorus'), 
 sect = lambda bar: next(n for a, e, n in SECT if a <= bar < e)
 # lyrics: (bar, text, [(midi, beats)] one note per syllable)
 LYR = [
-    (2, 'One photo, that is all it takes,', [(52, 1), (55, .5), (57, 1.5), (55, .5), (57, .5), (55, 1), (53, 3)]),
+    (2, "One photo, that's all it takes,", [(52, 1), (55, .5), (57, 1.5), (55, .5), (57, .5), (55, 1), (53, 3)]),
     (4, 'swap your face, live, on the camera,', [(52, .5), (55, .5), (57, 1), (60, 1), (57, .5), (55, .5), (57, 1), (55, .5), (55, 2.5)]),
     (6, 'thirty frames a second, smooth and clean,', [(52, .5), (55, .5), (57, 1), (57, .5), (60, 1), (57, .5), (55, 1), (55, .5), (53, 2.5)]),
     (8, 'running on your Mac, not a cloud machine.', [(52, .5), (55, .5), (57, .5), (57, .5), (60, 1), (59, .5), (57, .5), (59, 1), (57, .5), (55, 2.5)]),
