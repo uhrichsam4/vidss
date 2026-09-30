@@ -1,0 +1,103 @@
+<!doctype html>
+<!--
+  Minimal lyric video (the reference's style): small, tight, centred type that builds syllable by syllable,
+  on frames that cut on the beat between flat black and soft white with slow blurred window-light shadows.
+  1440x1080, every frame a pure function of time in seek(t). Timing: data/timing.json (beats, lines, syllables).
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>lyric video</title>
+<style>
+  @font-face { font-family: 'Archivo'; src: url(assets/fonts/archivo.woff2) format('woff2'); font-weight: 100 900; font-stretch: 62% 125%; font-display: block; }
+  html, body { margin: 0; background: #000; } canvas { display: block; }
+  body.preview { display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+  body.preview canvas { transform: scale(var(--fit, 0.5)); transform-origin: center; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1440" height="1080"></canvas>
+<script type="module">
+const W = 1440, H = 1080
+window.SIZE = [W, H]
+const cv = document.getElementById('c'), g = cv.getContext('2d')
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x))
+const lerp = (a, b, p) => a + (b - a) * p
+const eout = (u) => 1 - Math.pow(1 - clamp(u), 3)
+// deterministic noise from an integer
+const hash = (n) => { n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3); n = n ^ (n >>> 4); n = Math.imul(n, 0x27d4eb2d); n = n ^ (n >>> 15); return (n >>> 0) / 4294967295 }
+
+let T                                                          // timing: { duration, beats[], frames[], lines[{t, end, syl[{t, s, end}]}] }
+const TYPE = { size: 46, weight: 500, track: -0.04, space: 0.04 }
+
+// ---------- backgrounds ----------
+// white frames: an off-white wall with soft shadows (window bars, leaves, a doorway) that drift slowly; each frame its own light
+function whiteFrame(t, seg) {
+  const base = 236 + Math.round(hash(seg.i * 7 + 1) * 12)
+  g.fillStyle = `rgb(${base},${base},${base})`; g.fillRect(0, 0, W, H)
+  const u = t - seg.t, drift = u * 18
+  g.save(); g.filter = 'blur(70px)'
+  const kind = seg.i % 3
+  if (kind === 0) {                                           // slanted window bars
+    g.translate(W / 2 + drift, H / 2); g.rotate(-0.5 + hash(seg.i) * 0.3)
+    g.fillStyle = 'rgba(40,40,40,0.2)'
+    for (let k = -3; k <= 3; k++) g.fillRect(k * 380 - 60, -1400, 120 + 60 * hash(seg.i + k), 2800)
+    g.fillRect(-1400, -80 + 40 * Math.sin(u * 0.4), 2800, 90)
+  } else if (kind === 1) {                                    // a doorway of light with a darker room round it
+    const x = W * (0.3 + 0.4 * hash(seg.i + 3)) + drift
+    g.fillStyle = 'rgba(30,30,30,0.24)'; g.fillRect(-200, -200, x - 280, H + 400); g.fillRect(x + 280, -200, W, H + 400)
+    g.fillStyle = 'rgba(30,30,30,0.18)'; g.beginPath(); g.ellipse(x, H + 120, 700, 260, 0, 0, 7); g.fill()
+  } else {                                                    // soft leaf shadows
+    g.fillStyle = 'rgba(35,35,35,0.15)'
+    for (let k = 0; k < 9; k++) { const a = hash(seg.i * 13 + k) * 7, r = 120 + 160 * hash(seg.i + k * 5)
+      g.beginPath(); g.ellipse(W * hash(seg.i + k * 3) + drift * (0.6 + hash(k)), H * hash(seg.i * 2 + k) + Math.sin(u * 0.7 + a) * 20, r * 1.6, r, a + u * 0.05, 0, 7); g.fill() }
+  }
+  g.restore()
+  // a gentle falloff to the corners, like light on a wall
+  const v = g.createRadialGradient(W / 2, H / 2, H * 0.25, W / 2, H / 2, H * 0.95)
+  v.addColorStop(0, 'rgba(255,255,255,0.06)'); v.addColorStop(1, 'rgba(0,0,0,0.16)'); g.fillStyle = v; g.fillRect(0, 0, W, H)
+}
+function blackFrame() { g.fillStyle = '#000'; g.fillRect(0, 0, W, H) }
+
+// ---------- type ----------
+function setFont() { g.font = `${TYPE.weight} ${TYPE.size}px Archivo`; g.fontStretch = 'semi-condensed'; g.wordSpacing = `${TYPE.space * TYPE.size}px`; g.letterSpacing = `${TYPE.track * TYPE.size}px`; g.textBaseline = 'middle' }
+function lyric(t, dark) {
+  const L = T.lines.findLast((l) => t >= l.t - 0.02 && t < l.end); if (!L) return
+  const shown = L.syl.filter((s) => t >= s.t - 0.02)
+  if (!shown.length) return
+  // the line so far; a word still being sung ends in a hyphen (the reference: "every-", "al-")
+  let text = '', parts = []
+  shown.forEach((s, k) => { const piece = (s.space && k > 0 ? ' ' : '') + s.s; parts.push({ piece, t: s.t }); text += piece })
+  const last = shown[shown.length - 1], open = !last.wordEnd && shown.length < L.syl.length
+  setFont()
+  const full = text + (open ? '-' : ''), w = g.measureText(full).width
+  let x = W / 2 - w / 2; const y = H / 2
+  g.textAlign = 'left'
+  for (const p of parts) {
+    const k = eout((t - p.t + 0.02) / 0.09)               // each syllable eases in over a few frames
+    g.fillStyle = dark ? `rgba(255,255,255,${0.25 + 0.75 * k})` : `rgba(12,12,12,${0.25 + 0.75 * k})`
+    g.fillText(p.piece, x, y + (1 - k) * 4); x += g.measureText(p.piece).width
+  }
+  if (open) { g.fillStyle = dark ? '#fff' : '#0c0c0c'; g.fillText('-', x, y) }
+}
+
+// ---------- frame ----------
+async function seek(t) {
+  t = clamp(t, 0, T.duration - 1e-6)
+  const seg = T.frames.findLast((f) => t >= f.t) || T.frames[0]
+  if (seg.dark) blackFrame(); else whiteFrame(t, seg)
+  lyric(t, seg.dark)
+}
+window.seek = seek
+window.timeline = () => ({ duration: T.duration })
+T = await fetch('data/timing.json').then((r) => r.json())
+await document.fonts.load(`500 46px Archivo`); await document.fonts.ready
+await seek(0)
+window.ready = true
+const q = new URLSearchParams(location.search)
+if (q.has('t')) await seek(+q.get('t'))
+else if (!window.__RENDER__) { document.body.classList.add('preview'); const fit = () => document.body.style.setProperty('--fit', Math.min(innerWidth / W, innerHeight / H)); fit(); addEventListener('resize', fit)
+  const au = new Audio('src/clip.wav'); const t0 = performance.now(); document.body.onclick = () => au.play(); const loop = () => { seek(((performance.now() - t0) / 1000) % T.duration); requestAnimationFrame(loop) }; loop() }
+</script>
+</body>
+</html>

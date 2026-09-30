@@ -47,3 +47,9 @@ faceswap-song/audio/*.wav
 faceswap-song/audio/spec.png
 faceswap-song/out/
 faceswap-song/tmp/
+# lyric video: the songs and reference videos are copyrighted, the ASR models are huge; keep local
+lyricvid/src/
+lyricvid/ref/
+lyricvid/out/
+lyricvid/tmp/
+lyricvid/tools/asr/
