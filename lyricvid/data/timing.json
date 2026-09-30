@@ -36,7 +36,7 @@
  "lines": [
   {
    "t": 3.158,
-   "text": "I showed them all the things that he didn't understand",
+   "text": "I had me aboard, turning into a man",
    "syl": [
     {
      "s": "I",
@@ -45,76 +45,466 @@
      "t": 3.111
     },
     {
-     "s": "showed",
+     "s": "had",
      "space": true,
      "wordEnd": true,
      "t": 3.274
     },
     {
-     "s": "them",
+     "s": "me",
      "space": true,
      "wordEnd": true,
      "t": 3.622
     },
     {
-     "s": "all",
-     "space": true,
-     "wordEnd": true,
-     "t": 3.796
-    },
-    {
-     "s": "the",
-     "space": true,
-     "wordEnd": true,
-     "t": 4.145
-    },
-    {
-     "s": "things",
+     "s": "aboard,",
      "space": true,
      "wordEnd": true,
      "t": 4.284
     },
     {
-     "s": "that",
+     "s": "turn",
      "space": true,
-     "wordEnd": true,
+     "wordEnd": false,
      "t": 4.679
     },
     {
-     "s": "he",
-     "space": true,
+     "s": "ing",
+     "space": false,
      "wordEnd": true,
      "t": 4.865
     },
     {
-     "s": "did",
+     "s": "in",
      "space": true,
      "wordEnd": false,
      "t": 5.399
     },
     {
-     "s": "n't",
+     "s": "to",
      "space": false,
      "wordEnd": true,
      "t": 5.759
     },
     {
+     "s": "a",
+     "space": true,
+     "wordEnd": true,
+     "t": 6.293
+    },
+    {
+     "s": "man",
+     "space": true,
+     "wordEnd": true,
+     "t": 6.478
+    }
+   ],
+   "end": 7.392
+  },
+  {
+   "t": 7.442,
+   "text": "I showed them all the things that he didn't understand, whoa",
+   "syl": [
+    {
+     "s": "I",
+     "space": false,
+     "wordEnd": true,
+     "t": 7.396
+    },
+    {
+     "s": "showed",
+     "space": true,
+     "wordEnd": true,
+     "t": 7.535
+    },
+    {
+     "s": "them",
+     "space": true,
+     "wordEnd": true,
+     "t": 7.93
+    },
+    {
+     "s": "all",
+     "space": true,
+     "wordEnd": true,
+     "t": 8.429
+    },
+    {
+     "s": "the",
+     "space": true,
+     "wordEnd": true,
+     "t": 8.615
+    },
+    {
+     "s": "things",
+     "space": true,
+     "wordEnd": true,
+     "t": 9.137
+    },
+    {
+     "s": "that",
+     "space": true,
+     "wordEnd": true,
+     "t": 9.683
+    },
+    {
+     "s": "he",
+     "space": true,
+     "wordEnd": true,
+     "t": 10.054
+    },
+    {
+     "s": "did",
+     "space": true,
+     "wordEnd": false,
+     "t": 10.217
+    },
+    {
+     "s": "n't",
+     "space": false,
+     "wordEnd": true,
+     "t": 10.762
+    },
+    {
      "s": "un",
      "space": true,
      "wordEnd": false,
-     "t": 5.944
+     "t": 11.308
     },
     {
      "s": "der",
      "space": false,
      "wordEnd": false,
-     "t": 6.293
+     "t": 11.842
     },
     {
-     "s": "stand",
+     "s": "stand,",
      "space": false,
      "wordEnd": true,
-     "t": 6.478
+     "t": 12.179
+    },
+    {
+     "s": "whoa",
+     "space": true,
+     "wordEnd": true,
+     "t": 12.91
+    }
+   ],
+   "end": 13.801
+  },
+  {
+   "t": 13.851,
+   "text": "And then I let him go",
+   "syl": [
+    {
+     "s": "And",
+     "space": false,
+     "wordEnd": true,
+     "t": 13.804
+    },
+    {
+     "s": "then",
+     "space": true,
+     "wordEnd": true,
+     "t": 13.978
+    },
+    {
+     "s": "I",
+     "space": true,
+     "wordEnd": true,
+     "t": 14.594
+    },
+    {
+     "s": "let",
+     "space": true,
+     "wordEnd": true,
+     "t": 14.861
+    },
+    {
+     "s": "him",
+     "space": true,
+     "wordEnd": true,
+     "t": 15.047
+    },
+    {
+     "s": "go",
+     "space": true,
+     "wordEnd": true,
+     "t": 16.115
+    }
+   ],
+   "end": 19.722
+  },
+  {
+   "t": 19.772,
+   "text": "Now there's one in California with me close to my name",
+   "syl": [
+    {
+     "s": "Now",
+     "space": false,
+     "wordEnd": true,
+     "t": 19.725
+    },
+    {
+     "s": "there's",
+     "space": true,
+     "wordEnd": true,
+     "t": 19.911
+    },
+    {
+     "s": "one",
+     "space": true,
+     "wordEnd": true,
+     "t": 20.236
+    },
+    {
+     "s": "in",
+     "space": true,
+     "wordEnd": true,
+     "t": 20.387
+    },
+    {
+     "s": "Cal",
+     "space": true,
+     "wordEnd": false,
+     "t": 20.933
+    },
+    {
+     "s": "i",
+     "space": false,
+     "wordEnd": false,
+     "t": 21.049
+    },
+    {
+     "s": "for",
+     "space": false,
+     "wordEnd": false,
+     "t": 21.478
+    },
+    {
+     "s": "nia",
+     "space": false,
+     "wordEnd": true,
+     "t": 21.676
+    },
+    {
+     "s": "with",
+     "space": true,
+     "wordEnd": true,
+     "t": 21.85
+    },
+    {
+     "s": "me",
+     "space": true,
+     "wordEnd": true,
+     "t": 22.013
+    },
+    {
+     "s": "close",
+     "space": true,
+     "wordEnd": true,
+     "t": 22.547
+    },
+    {
+     "s": "to",
+     "space": true,
+     "wordEnd": true,
+     "t": 22.883
+    },
+    {
+     "s": "my",
+     "space": true,
+     "wordEnd": true,
+     "t": 23.092
+    },
+    {
+     "s": "name",
+     "space": true,
+     "wordEnd": true,
+     "t": 23.429
+    }
+   ],
+   "end": 24.598
+  },
+  {
+   "t": 24.648,
+   "text": "'Cause I found me a better lover in the UK",
+   "syl": [
+    {
+     "s": "'Cause",
+     "space": false,
+     "wordEnd": true,
+     "t": 24.602
+    },
+    {
+     "s": "I",
+     "space": true,
+     "wordEnd": true,
+     "t": 25.02
+    },
+    {
+     "s": "found",
+     "space": true,
+     "wordEnd": true,
+     "t": 25.821
+    },
+    {
+     "s": "me",
+     "space": true,
+     "wordEnd": true,
+     "t": 26.064
+    },
+    {
+     "s": "a",
+     "space": true,
+     "wordEnd": true,
+     "t": 26.831
+    },
+    {
+     "s": "bet",
+     "space": true,
+     "wordEnd": false,
+     "t": 27.725
+    },
+    {
+     "s": "ter",
+     "space": false,
+     "wordEnd": true,
+     "t": 27.91
+    },
+    {
+     "s": "lover",
+     "space": true,
+     "wordEnd": true,
+     "t": 28.444
+    },
+    {
+     "s": "in",
+     "space": true,
+     "wordEnd": true,
+     "t": 28.561
+    },
+    {
+     "s": "the",
+     "space": true,
+     "wordEnd": true,
+     "t": 28.828
+    },
+    {
+     "s": "UK",
+     "space": true,
+     "wordEnd": true,
+     "t": 28.979
+    }
+   ],
+   "end": 31.564
+  },
+  {
+   "t": 31.614,
+   "text": "Until I meet my getaway",
+   "syl": [
+    {
+     "s": "Un",
+     "space": false,
+     "wordEnd": false,
+     "t": 31.568
+    },
+    {
+     "s": "til",
+     "space": false,
+     "wordEnd": true,
+     "t": 31.753
+    },
+    {
+     "s": "I",
+     "space": true,
+     "wordEnd": true,
+     "t": 32.009
+    },
+    {
+     "s": "meet",
+     "space": true,
+     "wordEnd": true,
+     "t": 32.206
+    },
+    {
+     "s": "my",
+     "space": true,
+     "wordEnd": true,
+     "t": 32.729
+    },
+    {
+     "s": "get",
+     "space": true,
+     "wordEnd": false,
+     "t": 33.263
+    },
+    {
+     "s": "away",
+     "space": false,
+     "wordEnd": true,
+     "t": 33.785
+    }
+   ],
+   "end": 37.346
+  },
+  {
+   "t": 37.396,
+   "text": "One, two, three, they gonna run back to me",
+   "syl": [
+    {
+     "s": "One,",
+     "space": false,
+     "wordEnd": true,
+     "t": 37.349
+    },
+    {
+     "s": "two,",
+     "space": true,
+     "wordEnd": true,
+     "t": 37.547
+    },
+    {
+     "s": "three,",
+     "space": true,
+     "wordEnd": true,
+     "t": 38.081
+    },
+    {
+     "s": "they",
+     "space": true,
+     "wordEnd": true,
+     "t": 38.626
+    },
+    {
+     "s": "gonna",
+     "space": true,
+     "wordEnd": true,
+     "t": 38.951
+    },
+    {
+     "s": "run",
+     "space": true,
+     "wordEnd": true,
+     "t": 39.126
+    },
+    {
+     "s": "back",
+     "space": true,
+     "wordEnd": true,
+     "t": 39.671
+    },
+    {
+     "s": "to",
+     "space": true,
+     "wordEnd": true,
+     "t": 40.205
+    },
+    {
+     "s": "me",
+     "space": true,
+     "wordEnd": true,
+     "t": 40.763
     }
    ],
    "end": 42.3
@@ -137,384 +527,154 @@
    "i": 2
   },
   {
-   "t": 3.831,
+   "t": 5.433,
    "dark": false,
    "i": 3
   },
   {
-   "t": 4.365,
-   "dark": true,
-   "i": 4
-  },
-  {
-   "t": 4.899,
-   "dark": false,
-   "i": 5
-  },
-  {
-   "t": 5.433,
-   "dark": true,
-   "i": 6
-  },
-  {
-   "t": 5.968,
-   "dark": false,
-   "i": 7
-  },
-  {
-   "t": 6.502,
-   "dark": true,
-   "i": 8
-  },
-  {
-   "t": 7.036,
-   "dark": false,
-   "i": 9
-  },
-  {
    "t": 7.57,
-   "dark": true,
-   "i": 10
-  },
-  {
-   "t": 8.104,
    "dark": false,
-   "i": 11
-  },
-  {
-   "t": 8.638,
-   "dark": true,
-   "i": 12
-  },
-  {
-   "t": 9.172,
-   "dark": false,
-   "i": 13
+   "i": 4
   },
   {
    "t": 9.706,
    "dark": true,
-   "i": 14
-  },
-  {
-   "t": 10.24,
-   "dark": false,
-   "i": 15
-  },
-  {
-   "t": 10.774,
-   "dark": true,
-   "i": 16
-  },
-  {
-   "t": 11.308,
-   "dark": false,
-   "i": 17
+   "i": 5
   },
   {
    "t": 11.842,
-   "dark": true,
-   "i": 18
-  },
-  {
-   "t": 12.376,
    "dark": false,
-   "i": 19
-  },
-  {
-   "t": 12.91,
-   "dark": true,
-   "i": 20
-  },
-  {
-   "t": 13.444,
-   "dark": false,
-   "i": 21
+   "i": 6
   },
   {
    "t": 13.978,
    "dark": true,
-   "i": 22
-  },
-  {
-   "t": 14.512,
-   "dark": false,
-   "i": 23
-  },
-  {
-   "t": 15.047,
-   "dark": true,
-   "i": 24
-  },
-  {
-   "t": 15.581,
-   "dark": false,
-   "i": 25
+   "i": 7
   },
   {
    "t": 16.115,
    "dark": true,
-   "i": 26
-  },
-  {
-   "t": 16.649,
-   "dark": false,
-   "i": 27
-  },
-  {
-   "t": 17.183,
-   "dark": true,
-   "i": 28
-  },
-  {
-   "t": 17.717,
-   "dark": false,
-   "i": 29
+   "i": 8
   },
   {
    "t": 18.251,
-   "dark": true,
-   "i": 30
-  },
-  {
-   "t": 18.785,
    "dark": false,
-   "i": 31
-  },
-  {
-   "t": 19.319,
-   "dark": true,
-   "i": 32
+   "i": 9
   },
   {
    "t": 19.853,
-   "dark": false,
-   "i": 33
+   "dark": true,
+   "i": 10
   },
   {
    "t": 20.387,
-   "dark": true,
-   "i": 34
-  },
-  {
-   "t": 20.921,
    "dark": false,
-   "i": 35
-  },
-  {
-   "t": 21.455,
-   "dark": true,
-   "i": 36
-  },
-  {
-   "t": 21.989,
-   "dark": false,
-   "i": 37
+   "i": 11
   },
   {
    "t": 22.523,
-   "dark": true,
-   "i": 38
-  },
-  {
-   "t": 23.057,
    "dark": false,
-   "i": 39
-  },
-  {
-   "t": 23.591,
-   "dark": true,
-   "i": 40
-  },
-  {
-   "t": 24.126,
-   "dark": false,
-   "i": 41
+   "i": 12
   },
   {
    "t": 24.66,
    "dark": true,
-   "i": 42
-  },
-  {
-   "t": 25.194,
-   "dark": false,
-   "i": 43
-  },
-  {
-   "t": 25.728,
-   "dark": true,
-   "i": 44
-  },
-  {
-   "t": 26.262,
-   "dark": false,
-   "i": 45
+   "i": 13
   },
   {
    "t": 26.796,
-   "dark": true,
-   "i": 46
-  },
-  {
-   "t": 27.33,
    "dark": false,
-   "i": 47
-  },
-  {
-   "t": 27.864,
-   "dark": true,
-   "i": 48
-  },
-  {
-   "t": 28.398,
-   "dark": false,
-   "i": 49
+   "i": 14
   },
   {
    "t": 28.932,
-   "dark": true,
-   "i": 50
-  },
-  {
-   "t": 29.466,
    "dark": false,
-   "i": 51
-  },
-  {
-   "t": 30.0,
-   "dark": true,
-   "i": 52
-  },
-  {
-   "t": 30.534,
-   "dark": false,
-   "i": 53
+   "i": 15
   },
   {
    "t": 31.068,
    "dark": true,
-   "i": 54
+   "i": 16
   },
   {
    "t": 31.602,
    "dark": false,
-   "i": 55
-  },
-  {
-   "t": 32.136,
-   "dark": true,
-   "i": 56
-  },
-  {
-   "t": 32.67,
-   "dark": false,
-   "i": 57
+   "i": 17
   },
   {
    "t": 33.205,
    "dark": true,
-   "i": 58
-  },
-  {
-   "t": 33.739,
-   "dark": false,
-   "i": 59
-  },
-  {
-   "t": 34.273,
-   "dark": true,
-   "i": 60
-  },
-  {
-   "t": 34.807,
-   "dark": false,
-   "i": 61
+   "i": 18
   },
   {
    "t": 35.341,
-   "dark": true,
-   "i": 62
-  },
-  {
-   "t": 35.875,
    "dark": false,
-   "i": 63
-  },
-  {
-   "t": 36.409,
-   "dark": true,
-   "i": 64
-  },
-  {
-   "t": 36.943,
-   "dark": false,
-   "i": 65
+   "i": 19
   },
   {
    "t": 37.477,
    "dark": true,
-   "i": 66
+   "i": 20
   },
   {
    "t": 38.011,
    "dark": false,
-   "i": 67
+   "i": 21
   },
   {
    "t": 38.545,
    "dark": true,
-   "i": 68
+   "i": 22
   },
   {
    "t": 39.079,
    "dark": false,
-   "i": 69
+   "i": 23
   },
   {
    "t": 39.613,
    "dark": true,
-   "i": 70
+   "i": 24
   },
   {
    "t": 40.147,
    "dark": false,
-   "i": 71
+   "i": 25
   },
   {
    "t": 40.681,
    "dark": true,
-   "i": 72
+   "i": 26
   },
   {
    "t": 40.948,
    "dark": false,
-   "i": 73
+   "i": 27
   },
   {
    "t": 41.215,
    "dark": true,
-   "i": 74
+   "i": 28
   },
   {
    "t": 41.482,
    "dark": false,
-   "i": 75
+   "i": 29
   },
   {
    "t": 41.749,
    "dark": true,
-   "i": 76
+   "i": 30
   },
   {
    "t": 42.017,
    "dark": false,
-   "i": 77
+   "i": 31
   },
   {
    "t": 42.284,
    "dark": true,
-   "i": 78
+   "i": 32
   }
  ]
 }
